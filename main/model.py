@@ -168,24 +168,14 @@ class Model(nn.Module):
             loss['joint_proj'] = self.coord_loss(joint_proj, targets['joint_img'][:,:,:2], meta_info['joint_valid'])
             return loss
         else:
-            # change hand output joint_img according to hand bbox
-            for part_name, bbox in (('left', lhand_bbox), ('right', rhand_bbox)):
-                joint_img[:,mano.th_joint_type[part_name],0] *= (((bbox[:,None,2] - bbox[:,None,0]) / cfg.input_body_shape[1] * cfg.output_body_hm_shape[2]) / cfg.output_hand_hm_shape[2])
-                joint_img[:,mano.th_joint_type[part_name],0] += (bbox[:,None,0] / cfg.input_body_shape[1] * cfg.output_body_hm_shape[2])
-                joint_img[:,mano.th_joint_type[part_name],1] *= (((bbox[:,None,3] - bbox[:,None,1]) / cfg.input_body_shape[0] * cfg.output_body_hm_shape[1]) / cfg.output_hand_hm_shape[1])
-                joint_img[:,mano.th_joint_type[part_name],1] += (bbox[:,None,1] / cfg.input_body_shape[0] * cfg.output_body_hm_shape[1])
-
             # test output
             out = {}
             out['img'] = inputs['img']
             out['rel_trans'] = rel_trans
             out['lhand_bbox'] = restore_bbox(lhand_bbox_center, lhand_bbox_size, None, 1.0)
             out['rhand_bbox'] = restore_bbox(rhand_bbox_center, rhand_bbox_size, None, 1.0)
-            out['joint_img'] = joint_img
             out['lmano_mesh_cam'] = lmesh_cam
             out['rmano_mesh_cam'] = rmesh_cam
-            out['lmano_root_cam'] = lroot_cam
-            out['rmano_root_cam'] = rroot_cam
             out['lmano_joint_cam'] = ljoint_cam_learn
             out['rmano_joint_cam'] = rjoint_cam_learn
             out['lmano_root_pose'] = lroot_pose

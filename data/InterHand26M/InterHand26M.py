@@ -317,9 +317,7 @@ class InterHand26M(torch.utils.data.Dataset):
                     'mpvpe_sh': [None for _ in range(sample_num)],
                     'mpvpe_ih': [None for _ in range(sample_num*2)],
                     'mrrpe': [None for _ in range(sample_num)],
-                    'bbox_iou': [None for _ in range(sample_num*2)],
-                    'mpvpe_aid_ih': [(None, None) for _ in range(sample_num*2)],
-                    'mrrpe_aid_ih': [(None, None) for _ in range(sample_num)]
+                    'bbox_iou': [None for _ in range(sample_num*2)]
                     }
 
         for n in range(sample_num):
@@ -335,26 +333,8 @@ class InterHand26M(torch.utils.data.Dataset):
             # visualize
             vis = False
             if vis:
-                filename = str(cur_sample_idx + n)
+                filename = str(annot['aid'])
                 img = out['img'].transpose(1,2,0)[:,:,::-1]*255
-
-                joint_img = out['joint_img']
-                ljoint_img = joint_img[mano.th_joint_type['left'],:]
-                ljoint_img[:,0] = ljoint_img[:,0] / cfg.output_body_hm_shape[2] * cfg.input_img_shape[1]
-                ljoint_img[:,1] = ljoint_img[:,1] / cfg.output_body_hm_shape[1] * cfg.input_img_shape[0]
-                for j in range(len(ljoint_img)):
-                    img = cv2.circle(img.copy(), (int(ljoint_img[j][0]), int(ljoint_img[j][1])), 3, (255,0,0), -1)
-                for pair in mano.sh_skeleton:
-                    i,j = pair
-                    img = cv2.line(img.copy(), (int(ljoint_img[i][0]), int(ljoint_img[i][1])), (int(ljoint_img[j][0]), int(ljoint_img[j][1])), (255,0,0), 3)
-                rjoint_img = joint_img[mano.th_joint_type['right'],:]
-                rjoint_img[:,0] = rjoint_img[:,0] / cfg.output_body_hm_shape[2] * cfg.input_img_shape[1]
-                rjoint_img[:,1] = rjoint_img[:,1] / cfg.output_body_hm_shape[1] * cfg.input_img_shape[0]
-                for j in range(len(rjoint_img)):
-                    img = cv2.circle(img.copy(), (int(rjoint_img[j][0]), int(rjoint_img[j][1])), 3, (0,0,255), -1)
-                for pair in mano.sh_skeleton:
-                    i,j = pair
-                    img = cv2.line(img.copy(), (int(rjoint_img[i][0]), int(rjoint_img[i][1])), (int(rjoint_img[j][0]), int(rjoint_img[j][1])), (0,0,255), 3)
 
                 lhand_bbox = out['lhand_bbox'].reshape(2,2).copy()
                 lhand_bbox[:,0] = lhand_bbox[:,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
@@ -368,18 +348,14 @@ class InterHand26M(torch.utils.data.Dataset):
                 img = cv2.rectangle(img.copy(), (int(rhand_bbox[0]), int(rhand_bbox[1])), (int(rhand_bbox[2]), int(rhand_bbox[3])), (0,0,255), 3)
                 cv2.imwrite(filename + '.jpg', img)
 
-                #ljoint_img[:,2] = ljoint_img[:,2] / cfg.output_hand_hm_shape[2]
-                #rjoint_img[:,2] = rjoint_img[:,2] / cfg.output_hand_hm_shape[2]
+                save_obj(out['rmano_mesh_cam'], mano.face['right'], filename + '_right.obj')
+                save_obj(out['lmano_mesh_cam'] + out['rel_trans'].reshape(1,3), mano.face['left'], filename + '_left.obj')
 
-                #save_obj(out['rmano_mesh_cam'], mano.face['right'], filename + '_right.obj')
-                #save_obj(out['lmano_mesh_cam'], mano.face['left'], filename + '_left.obj')
-        
             # mrrpe
             rel_trans_gt = joint_gt[self.joint_set['root_joint_idx']['left']] - joint_gt[self.joint_set['root_joint_idx']['right']]
             rel_trans_out = out['rel_trans'] * 1000 # meter to milimeter
             if joint_valid[self.joint_set['root_joint_idx']['right']] * joint_valid[self.joint_set['root_joint_idx']['left']]:
                 eval_result['mrrpe'][n] = np.sqrt(np.sum((rel_trans_gt - rel_trans_out)**2))
-                eval_result['mrrpe_aid_ih'][n] = (float(eval_result['mrrpe'][n]), str(annot['aid']))
 
             # root joint alignment
             for h in ('right', 'left'):
@@ -407,10 +383,8 @@ class InterHand26M(torch.utils.data.Dataset):
             elif annot['hand_type'] == 'interacting':
                 if annot['mano_param']['right'] is not None:
                     eval_result['mpvpe_ih'][2*n] = np.sqrt(np.sum((mesh_gt[:mano.vertex_num,:] - mesh_out[:mano.vertex_num,:])**2,1)).mean()
-                    eval_result['mpvpe_aid_ih'][2*n] = (float(eval_result['mpvpe_ih'][2*n]), str(annot['aid']))
                 if annot['mano_param']['left'] is not None:
                     eval_result['mpvpe_ih'][2*n+1] = np.sqrt(np.sum((mesh_gt[mano.vertex_num:,:] - mesh_out[mano.vertex_num:,:])**2,1)).mean()
-                    eval_result['mpvpe_aid_ih'][2*n+1] = (float(eval_result['mpvpe_ih'][2*n+1]), str(annot['aid']))
 
             # bbox IoU
             bb2img_trans = out['bb2img_trans']

@@ -87,7 +87,7 @@ class MSCOCO(torch.utils.data.Dataset):
                 mano_param = {'right': None, 'left': None}
 
             datalist.append({
-                        'ann_id': aid,
+                        'aid': aid,
                         'img_path': img_path, 
                         'img_shape': (img['height'],img['width']), 
                         'body_bbox': body_bbox,
@@ -273,13 +273,12 @@ class MSCOCO(torch.utils.data.Dataset):
 
         for n in range(sample_num):
             annot = annots[cur_sample_idx + n]
-            ann_id = annot['ann_id']
             out = outs[n]
             
             # visualize
             vis = False
             if vis:
-                """
+                filename = str(annot['aid'])
                 img = (out['img'].transpose(1,2,0)[:,:,::-1] * 255).copy()
 
                 lhand_bbox = out['lhand_bbox'].reshape(2,2).copy()
@@ -292,16 +291,10 @@ class MSCOCO(torch.utils.data.Dataset):
                 rhand_bbox[:,1] = rhand_bbox[:,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
                 rhand_bbox = rhand_bbox.reshape(4)
                 img = cv2.rectangle(img.copy(), (int(rhand_bbox[0]), int(rhand_bbox[1])), (int(rhand_bbox[2]), int(rhand_bbox[3])), (0,0,255), 3)
-                cv2.imwrite(str(ann_id) + '.jpg', img)
-                """
+                cv2.imwrite(filename + '.jpg', img)
 
-                rmano_mesh_cam = out['rmano_mesh_cam']
-                rmano_mesh_cam = rmano_mesh_cam - np.dot(mano.sh_joint_regressor, rmano_mesh_cam)[mano.sh_root_joint_idx,None,:]
-                lmano_mesh_cam = out['lmano_mesh_cam']
-                lmano_mesh_cam = lmano_mesh_cam - np.dot(mano.sh_joint_regressor, lmano_mesh_cam)[mano.sh_root_joint_idx,None,:]
-                lmano_mesh_cam = lmano_mesh_cam + out['rel_trans'].reshape(1,3)
-                save_obj(rmano_mesh_cam, mano.face['right'], str(ann_id) + '_right.obj')
-                save_obj(lmano_mesh_cam, mano.face['left'], str(ann_id) + '_left.obj')
+                save_obj(out['rmano_mesh_cam'], mano.face['right'], filename + '_right.obj')
+                save_obj(out['lmano_mesh_cam'] + out['rel_trans'].reshape(1,3), mano.face['left'], filename + '_left.obj')
 
             # bbox IoU
             bb2img_trans = out['bb2img_trans']
