@@ -9,7 +9,7 @@
 
 ## Demo
 1. Move to `demo` folder.
-2. Download pre-trained InterWild from [here](https://drive.google.com/file/d/1W4TC5MAqciG5qN79wtKBGL8mGgqrfEvP/view?usp=share_link)
+2. Download pre-trained InterWild from [here](https://drive.google.com/file/d/1W4TC5MAqciG5qN79wtKBGL8mGgqrfEvP/view?usp=share_link).
 3. Put input images at `images`. The image should be a cropped image, which contain a single human. For example, using a human detector.
 4. Run `python demo.py --gpu $GPU_ID`
 5. Boxes, meshes, and MANO parameters are saved at `boxes`, `meshes`, `params`, respectively.
@@ -89,7 +89,8 @@ to train the network on the GPU 0,1,2,3. `--gpu 0,1,2,3` can be used instead of 
 
 
 ### Test
-Place trained model at the `output/model_dump/`.
+* If you want to test with pre-trained InterWild, download it from [here](https://drive.google.com/file/d/1W4TC5MAqciG5qN79wtKBGL8mGgqrfEvP/view?usp=share_link) and place it at `output/model_dump'.
+* Or if you want to test with our own trained model, place your model at `output/model_dump`.
 
 In the `main` folder, run 
 ```bash
