@@ -4,7 +4,7 @@
 * This repo is official **[PyTorch](https://pytorch.org)** implementation of **Bringing Inputs to Shared Domains for 3D Interacting Hands Recovery in the Wild (CVPR 2023)**. 
 
 <p align="middle">
-<img src="assets/teaser.png" width="1200" height="275">
+<img src="assets/teaser.png" width="1200" height="250">
 </p>
 
 ## Demo
