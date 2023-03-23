@@ -28,7 +28,7 @@ ${ROOT}
 ```
 * `data` contains data loading codes and soft links to images and annotations directories.
 * `demo` contains the demo code
-* `common` contains kernel codes for 3D interacting hand pose estimation.
+* `common` contains kernel code.
 * `main` contains high-level codes for training or testing the network.
 * `output` contains log, trained models, visualized outputs, and test result.
 
