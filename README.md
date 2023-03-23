@@ -4,7 +4,7 @@
 * This repo is official **[PyTorch](https://pytorch.org)** implementation of **Bringing Inputs to Shared Domains for 3D Interacting Hands Recovery in the Wild (CVPR 2023)**. 
 
 <p align="middle">
-<img src="assets/teaser.png" width="1200" height="330">
+<img src="assets/teaser.png" width="1200" height="300">
 </p>
 
 ## Demo
@@ -39,15 +39,23 @@ ${ROOT}
 |-- data
 |   |-- InterHand26M
 |   |   |-- annotations
+|   |   |   |-- train
+|   |   |   |-- test
 |   |   |-- images
 |   |-- MSCOCO
 |   |   |-- annotations
+|   |   |   |-- coco_wholebody_train_v1.0.json
+|   |   |   |-- coco_wholebody_val_v1.0.json
+|   |   |   |-- MSCOCO_train_MANO_NeuralAnnot.json
 |   |   |-- images
+|   |   |   |-- train2017
+|   |   |   |-- val2017
 |   |-- HIC
 |   |   |-- data
+|   |   |   |-- HIC.json
 ```
 * Download InterHand2.6M [[HOMEPAGE](https://mks0601.github.io/InterHand2.6M/)]. `images` contains images in 5 fps, and `annotations` contains the `H+M` subset.
-* Download the whole-body version of MSCOCO [[HOMEPAGE](https://github.com/jin-s13/COCO-WholeBody/)].
+* Download the whole-body version of MSCOCO [[HOMEPAGE](https://github.com/jin-s13/COCO-WholeBody/)]. `MSCOCO_train_MANO_NeuralAnnot.json` can be downloaded from [[here](https://drive.google.com/file/d/1OuWlMor5f0TZLVSsojz5Mh6Ut93WkcJc/view)].
 * Download HIC [[HOMEPAGE](https://files.is.tue.mpg.de/dtzionas/Hand-Object-Capture/)] [[annotations](https://drive.google.com/file/d/1oqquzJ7DY728M8zQoCYvvuZEBh8L8zkQ/view?usp=share_link)]. You need to download 1) all `Hand-Hand Interaction` sequences (`01.zip`-`14.zip`) and 2) some of `Hand-Object Interaction` seuqneces (`15.zip`-`21.zip`) and 3) MANO fits. Or you can simply run `python download.py` in the `data/HIC` folder.
 * All annotation files follow [MSCOCO format](http://cocodataset.org/#format-data). 
 * If you want to add your own dataset, you have to convert it to [MSCOCO format](http://cocodataset.org/#format-data).  
