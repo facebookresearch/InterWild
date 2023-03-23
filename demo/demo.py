@@ -18,7 +18,7 @@ sys.path.insert(0, osp.join('..', 'common'))
 from config import cfg
 from model import get_model
 from utils.preprocessing import load_img, process_bbox, generate_patch_image
-from utils.vis import save_obj, render_mesh, vis_keypoints_with_skeleton, vis_3d_skeleton
+from utils.vis import save_obj
 from utils.human_models import mano
 
 def parse_args():
@@ -52,14 +52,12 @@ model.eval()
 
 # prepare input image
 input_img_path = './images'
-render_save_path = './renders'
+box_save_path = './boxes'
 mesh_save_path = './meshes'
 param_save_path = './params'
-vis_save_path = './vis'
-os.makedirs(render_save_path, exist_ok=True)
+os.makedirs(box_save_path, exist_ok=True)
 os.makedirs(mesh_save_path, exist_ok=True)
 os.makedirs(param_save_path, exist_ok=True)
-os.makedirs(vis_save_path, exist_ok=True)
 
 img_path_list = glob(osp.join(input_img_path, '*.jpg')) + glob(osp.join(input_img_path, '*.png'))
 for img_path in tqdm(img_path_list):
@@ -86,42 +84,16 @@ for img_path in tqdm(img_path_list):
     for h in ('right', 'left'):
         hand_bbox = out[h[0] + 'hand_bbox'].cpu().numpy()[0].reshape(2,2) # xyxy
         mesh = out[h[0] + 'mano_mesh_cam'].cpu().numpy()[0] # root-relative
-        root_pose = out[h[0] + 'mano_root_pose'].cpu().numpy()[0] # MANO root pose parameter
-        hand_pose = out[h[0] + 'mano_hand_pose'].cpu().numpy()[0] # MANO hand pose parameter
+        root_pose = out[h[0] + 'mano_root_pose'].cpu().numpy()[0] # MANO root pose
+        hand_pose = out[h[0] + 'mano_hand_pose'].cpu().numpy()[0] # MANO hand pose
         shape = out[h[0] + 'mano_shape'].cpu().numpy()[0] # MANO shape parameter
-        root_cam = out[h[0] + 'mano_root_cam'].cpu().numpy()[0]
-        joint_img = out['joint_img'].cpu().numpy()[0][mano.th_joint_type[h],:]
-        
-        """
-        # render mesh
-        hand_bbox[:,0] = hand_bbox[:,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
-        hand_bbox[:,1] = hand_bbox[:,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
-        hand_bbox_xy1 = np.concatenate((hand_bbox, np.ones_like(hand_bbox[:,:1])),1)
-        hand_bbox = np.dot(bb2img_trans, hand_bbox_xy1.transpose(1,0)).transpose(1,0)
-        focal = [cfg.focal[0] / cfg.input_hand_shape[1] * (hand_bbox[1,0] - hand_bbox[0,0]),
-                cfg.focal[1] / cfg.input_hand_shape[0] * (hand_bbox[1,1] - hand_bbox[0,1])]
-        princpt = [cfg.princpt[0] / cfg.input_hand_shape[1] * (hand_bbox[1,0] - hand_bbox[0,0]) + hand_bbox[0,0],
-                cfg.princpt[1] / cfg.input_hand_shape[0] * (hand_bbox[1,1] - hand_bbox[0,1]) + hand_bbox[0,1]]
-        original_img = render_mesh(original_img, mesh + root_cam.reshape(1,3), mano.face[h], {'focal': focal, 'princpt': princpt})
-        cv2.imwrite(osp.join(render_save_path, file_name + '.jpg'), original_img[:,:,::-1])
-        """
-        
-        """
-        # visualize 2D pose
-        joint_img[:,0] = joint_img[:,0] / cfg.output_body_hm_shape[2] * cfg.input_img_shape[1]
-        joint_img[:,1] = joint_img[:,1] / cfg.output_body_hm_shape[1] * cfg.input_img_shape[0]
-        joint_img_xy1 = np.concatenate((joint_img[:,:2], np.ones_like(joint_img[:,:1])),1)
-        joint_img = np.dot(bb2img_trans, joint_img_xy1.transpose(1,0)).transpose(1,0)
-        vis_img = vis_keypoints_with_skeleton(original_img, joint_img, mano.sh_skeleton)
-        cv2.imwrite(osp.join(vis_save_path, file_name + '_' + h + '.jpg'), vis_img[:,:,::-1])
-        """
         
         # bbox save
         hand_bbox[:,0] = hand_bbox[:,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
         hand_bbox[:,1] = hand_bbox[:,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
         hand_bbox_xy1 = np.concatenate((hand_bbox, np.ones_like(hand_bbox[:,:1])),1)
         hand_bbox = np.dot(bb2img_trans, hand_bbox_xy1.transpose(1,0)).transpose(1,0)
-        with open(file_name + '_' + h + '.json', 'w') as f:
+        with open(osp.join(box_save_path, file_name + '_' + h + '.json'), 'w') as f:
             json.dump(hand_bbox.tolist(), f)
 
         # save mesh
@@ -131,7 +103,10 @@ for img_path in tqdm(img_path_list):
             save_obj(mesh+rel_trans.reshape(1,3), mano.face[h], osp.join(mesh_save_path, file_name + '_' + h + '.obj'))
 
         # save MANO parameters
-        #with open(osp.join(param_save_path, file_name + '_' + h + '.json'), 'w') as f:
-        #    json.dump({'root_pose': root_pose.tolist(), 'hand_pose': hand_pose.tolist(), 'shape': shape.tolist()}, f)
-    
+        with open(osp.join(param_save_path, file_name + '_' + h + '.json'), 'w') as f:
+            if h == 'right':
+                json.dump({'root_pose': root_pose.tolist(), 'hand_pose': hand_pose.tolist(), 'shape': shape.tolist(), 'root_trans': [0,0,0]}, f)
+            else:
+                 json.dump({'root_pose': root_pose.tolist(), 'hand_pose': hand_pose.tolist(), 'shape': shape.tolist(), 'root_trans': rel_trans.tolist()}, f)
+   
 
