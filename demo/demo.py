@@ -25,7 +25,7 @@ sys.path.insert(0, osp.join('..', 'common'))
 from config import cfg
 from model import get_model
 from utils.preprocessing import load_img, process_bbox, generate_patch_image
-from utils.vis import save_obj
+from utils.vis import save_obj, render_mesh_orthogonal
 from utils.human_models import mano
 
 def parse_args():
@@ -57,44 +57,56 @@ ckpt = torch.load(model_path)
 model.load_state_dict(ckpt['network'], strict=False)
 model.eval()
 
-# prepare input image
+# prepare save paths
 input_img_path = './images'
 box_save_path = './boxes'
 mesh_save_path = './meshes'
 param_save_path = './params'
+render_save_path = './renders'
 os.makedirs(box_save_path, exist_ok=True)
 os.makedirs(mesh_save_path, exist_ok=True)
 os.makedirs(param_save_path, exist_ok=True)
+os.makedirs(render_save_path, exist_ok=True)
 
+# load paths of input images
 img_path_list = glob(osp.join(input_img_path, '*.jpg')) + glob(osp.join(input_img_path, '*.png'))
+
+# for each input image
 for img_path in tqdm(img_path_list):
     file_name = img_path.split('/')[-1][:-4]
-
+    
+    # load image and make its aspect ratio follow cfg.input_img_shape
     original_img = load_img(img_path) 
     img_height, img_width = original_img.shape[:2]
     bbox = [0, 0, img_width, img_height]
     bbox = process_bbox(bbox, img_width, img_height)
-
     img, img2bb_trans, bb2img_trans = generate_patch_image(original_img, bbox, 1.0, 0.0, False, cfg.input_img_shape)
     transform = transforms.ToTensor()
     img = transform(img.astype(np.float32))/255
     img = img.cuda()[None,:,:,:]
 
-    # forward
+    # forward to InterWild
     inputs = {'img': img}
     targets = {}
     meta_info = {}
     with torch.no_grad():
         out = model(inputs, targets, meta_info, 'test')
     
+    # for each right and left hand
+    prev_depth = None
+    img = torch.flip(img.permute(0,2,3,1), [3]) * 255 # batch_size, img_height, img_width, 3
+    rroot_cam = out['rroot_cam'].cpu().numpy()[0] # 3D position of the right hand root joint (wrist)
     rel_trans = out['rel_trans'].cpu().numpy()[0] # 3D relative translation between two hands
     for h in ('right', 'left'):
+        # get outputs
         hand_bbox = out[h[0] + 'hand_bbox'].cpu().numpy()[0].reshape(2,2) # xyxy
-        mesh = out[h[0] + 'mano_mesh_cam'].cpu().numpy()[0] # root-relative
+        mesh = out[h[0] + 'mano_mesh_cam'].cpu().numpy()[0] # root-relative mesh
         root_pose = out[h[0] + 'mano_root_pose'].cpu().numpy()[0] # MANO root pose
         hand_pose = out[h[0] + 'mano_hand_pose'].cpu().numpy()[0] # MANO hand pose
         shape = out[h[0] + 'mano_shape'].cpu().numpy()[0] # MANO shape parameter
-        
+        render_focal = out['render_focal']
+        render_princpt = out['render_princpt']
+         
         # bbox save
         hand_bbox[:,0] = hand_bbox[:,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
         hand_bbox[:,1] = hand_bbox[:,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
@@ -115,5 +127,26 @@ for img_path in tqdm(img_path_list):
                 json.dump({'root_pose': root_pose.tolist(), 'hand_pose': hand_pose.tolist(), 'shape': shape.tolist(), 'root_trans': [0,0,0]}, f)
             else:
                  json.dump({'root_pose': root_pose.tolist(), 'hand_pose': hand_pose.tolist(), 'shape': shape.tolist(), 'root_trans': rel_trans.tolist()}, f)
-   
+
+        # render
+        with torch.no_grad():
+            mesh = torch.from_numpy(mesh[None,:,:]).float().cuda() + torch.from_numpy(rroot_cam[None,None,:]).float().cuda()
+            if h == 'left':
+                mesh = mesh + torch.from_numpy(rel_trans[None,None,:]).float().cuda()
+            face = torch.from_numpy(mano.face[h][None,:,:].astype(np.int32)).cuda()
+            render_cam_params = {'focal': render_focal, 'princpt': render_princpt}
+            rgb, depth = render_mesh_orthogonal(mesh, face, render_cam_params, cfg.input_img_shape, h)
+        cv2.imwrite(osp.join(render_save_path, file_name + '_' + h + '.jpg'), rgb[0].cpu().numpy()) # save render of each hand
+        valid_mask = (depth > 0)
+        if prev_depth is None:
+            render_mask = valid_mask.float()
+            img = rgb * render_mask + img * (1 - render_mask)
+            prev_depth = depth
+        else:
+            render_mask = (valid_mask * (((depth < prev_depth) + (prev_depth <= 0)) > 0)).float()
+            img = rgb * render_mask + img * (1 - render_mask)
+            prev_depth = depth * render_mask + prev_depth * (1 - render_mask)
+    
+    # save render of two hands
+    cv2.imwrite(osp.join(render_save_path, file_name + '.jpg'), img[0].cpu().numpy())
 

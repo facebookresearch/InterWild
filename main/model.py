@@ -73,9 +73,9 @@ class Model(nn.Module):
         joint_proj = torch.stack((x,y),2)
 
         # root-relative 3D coordinates
-        root_cam = joint_cam[:,mano.sh_root_joint_idx,None,:]
-        joint_cam = joint_cam - root_cam
-        mesh_cam = mesh_cam - root_cam
+        root_cam = joint_cam[:,mano.sh_root_joint_idx,:]
+        joint_cam = joint_cam - root_cam[:,None,:]
+        mesh_cam = mesh_cam - root_cam[:,None,:]
         return joint_proj, joint_cam, mesh_cam, root_cam
 
     def forward(self, inputs, targets, meta_info, mode):
@@ -93,7 +93,7 @@ class Model(nn.Module):
         lhand_num = len(lhand_bbox); rhand_num = len(rhand_bbox);
         # restore flipped left hand joint coordinates
         ljoint_img = joint_img[:lhand_num,:,:]
-        ljoint_img = torch.cat((cfg.output_hand_hm_shape[2] - 1 - ljoint_img[:,:,0:1], ljoint_img[:,:,1:]),2)
+        ljoint_img = torch.cat((cfg.output_hand_hm_shape[2] - 1 - ljoint_img[:,:,0:1], ljoint_img[:,:,1:]),2) # this actually should have been done in input_hand_shape after upsampling the coordinates.. a bug to be fixed.
         rjoint_img = joint_img[lhand_num:,:,:]
         # restore flipped left hand joint rotations
         lroot_pose = mano_root_pose[:lhand_num,:]
@@ -175,6 +175,23 @@ class Model(nn.Module):
             loss['joint_proj'] = self.coord_loss(joint_proj, targets['joint_img'][:,:,:2], meta_info['joint_valid'])
             return loss
         else:
+            # warp joint_proj from cfg.output_hand_hm_shape to cfg.input_img_shape
+            for part_name, bbox in (('left', lhand_bbox), ('right', rhand_bbox)):
+                joint_proj[:,mano.th_joint_type[part_name],0] *= (((bbox[:,None,2] - bbox[:,None,0]) / cfg.input_body_shape[1] * cfg.input_img_shape[1]) / cfg.output_hand_hm_shape[2])
+                joint_proj[:,mano.th_joint_type[part_name],0] += (bbox[:,None,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1])
+                joint_proj[:,mano.th_joint_type[part_name],1] *= (((bbox[:,None,3] - bbox[:,None,1]) / cfg.input_body_shape[0] * cfg.input_img_shape[0]) / cfg.output_hand_hm_shape[1])
+                joint_proj[:,mano.th_joint_type[part_name],1] += (bbox[:,None,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0])
+                
+            # warp focal lengths and princpts
+            joint_cam[:,mano.th_joint_type['right'],:] += rroot_cam[:,None,:]
+            joint_cam[:,mano.th_joint_type['left'],:] += (rroot_cam[:,None,:] + rel_trans[:,None,:])
+            scale_x = (torch.max(joint_proj[:,:,0],1)[0] - torch.min(joint_proj[:,:,0],1)[0]) / (torch.max(joint_cam[:,:,0],1)[0] - torch.min(joint_cam[:,:,0],1)[0])
+            scale_y = (torch.max(joint_proj[:,:,1],1)[0] - torch.min(joint_proj[:,:,1],1)[0]) / (torch.max(joint_cam[:,:,1],1)[0] - torch.min(joint_cam[:,:,1],1)[0])
+            trans_x = joint_proj[:,:,0].mean(1) - (joint_cam[:,:,0] * scale_x[:,None]).mean(1)
+            trans_y = joint_proj[:,:,1].mean(1) - (joint_cam[:,:,1] * scale_y[:,None]).mean(1)
+            render_focal = torch.stack((scale_x, scale_y),1)
+            render_princpt = torch.stack((trans_x, trans_y),1)
+
             # test output
             out = {}
             out['img'] = inputs['img']
@@ -191,8 +208,10 @@ class Model(nn.Module):
             out['rmano_hand_pose'] = rhand_pose
             out['lmano_shape'] = lshape
             out['rmano_shape'] = rshape
-            out['lcam_trans'] = lcam_trans
-            out['rcam_trans'] = rcam_trans
+            out['lroot_cam'] = lroot_cam
+            out['rroot_cam'] = rroot_cam
+            out['render_focal'] = render_focal
+            out['render_princpt'] = render_princpt
             if 'bb2img_trans' in meta_info:
                 out['bb2img_trans'] = meta_info['bb2img_trans']
             if 'mano_mesh_cam' in targets:
