@@ -24,7 +24,7 @@ sys.path.insert(0, osp.join('..', 'data'))
 sys.path.insert(0, osp.join('..', 'common'))
 from config import cfg
 from model import get_model
-from utils.preprocessing import load_img, process_bbox, generate_patch_image
+from utils.preprocessing import load_img, process_bbox, generate_patch_image, get_iou
 from utils.vis import save_obj, render_mesh_orthogonal
 from utils.human_models import mano
 
@@ -92,6 +92,15 @@ for img_path in tqdm(img_path_list):
     with torch.no_grad():
         out = model(inputs, targets, meta_info, 'test')
     
+    # check IoU between boxes of two hands
+    rhand_bbox = out['rhand_bbox'].cpu().numpy()[0]
+    lhand_bbox = out['lhand_bbox'].cpu().numpy()[0]
+    iou = get_iou(rhand_bbox, lhand_bbox, 'xyxy')
+    if iou > 0:
+        is_th = True
+    else:
+        is_th = False
+
     # for each right and left hand
     prev_depth = None
     img = torch.flip(img.permute(0,2,3,1), [3]) * 255 # batch_size, img_height, img_width, 3
@@ -104,9 +113,21 @@ for img_path in tqdm(img_path_list):
         root_pose = out[h[0] + 'mano_root_pose'].cpu().numpy()[0] # MANO root pose
         hand_pose = out[h[0] + 'mano_hand_pose'].cpu().numpy()[0] # MANO hand pose
         shape = out[h[0] + 'mano_shape'].cpu().numpy()[0] # MANO shape parameter
-        render_focal = out['render_focal']
-        render_princpt = out['render_princpt']
-         
+        root_cam = out[h[0] + 'root_cam'].cpu().numpy()[0] # 3D position of the root joint (wrist)
+
+        # use rel_trans only when two-hand cases
+        if is_th:
+            if h == 'right':
+                mesh = mesh + rroot_cam[None,:]
+            else:
+                mesh = mesh + rroot_cam[None,:] + rel_trans[None,:]
+            render_focal = out['render_focal']
+            render_princpt = out['render_princpt']
+        else:
+            mesh = mesh + root_cam
+            render_focal = out['render_' + h[0] + 'focal']
+            render_princpt = out['render_' + h[0] + 'princpt']
+
         # bbox save
         hand_bbox[:,0] = hand_bbox[:,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
         hand_bbox[:,1] = hand_bbox[:,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
@@ -116,10 +137,7 @@ for img_path in tqdm(img_path_list):
             json.dump(hand_bbox.tolist(), f)
 
         # save mesh
-        if h == 'right':
-            save_obj(mesh, mano.face[h], osp.join(mesh_save_path, file_name + '_' + h + '.obj'))
-        else:
-            save_obj(mesh+rel_trans.reshape(1,3), mano.face[h], osp.join(mesh_save_path, file_name + '_' + h + '.obj'))
+        save_obj(mesh, mano.face[h], osp.join(mesh_save_path, file_name + '_' + h + '.obj'))
 
         # save MANO parameters
         with open(osp.join(param_save_path, file_name + '_' + h + '.json'), 'w') as f:
@@ -130,9 +148,7 @@ for img_path in tqdm(img_path_list):
 
         # render
         with torch.no_grad():
-            mesh = torch.from_numpy(mesh[None,:,:]).float().cuda() + torch.from_numpy(rroot_cam[None,None,:]).float().cuda()
-            if h == 'left':
-                mesh = mesh + torch.from_numpy(rel_trans[None,None,:]).float().cuda()
+            mesh = torch.from_numpy(mesh[None,:,:]).float().cuda()
             face = torch.from_numpy(mano.face[h][None,:,:].astype(np.int32)).cuda()
             render_cam_params = {'focal': render_focal, 'princpt': render_princpt}
             rgb, depth = render_mesh_orthogonal(mesh, face, render_cam_params, cfg.input_img_shape, h)

@@ -181,14 +181,37 @@ class Model(nn.Module):
                 joint_proj[:,mano.th_joint_type[part_name],0] += (bbox[:,None,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1])
                 joint_proj[:,mano.th_joint_type[part_name],1] *= (((bbox[:,None,3] - bbox[:,None,1]) / cfg.input_body_shape[0] * cfg.input_img_shape[0]) / cfg.output_hand_hm_shape[1])
                 joint_proj[:,mano.th_joint_type[part_name],1] += (bbox[:,None,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0])
-                
-            # warp focal lengths and princpts
-            joint_cam[:,mano.th_joint_type['right'],:] += rroot_cam[:,None,:]
-            joint_cam[:,mano.th_joint_type['left'],:] += (rroot_cam[:,None,:] + rel_trans[:,None,:])
-            scale_x = (torch.max(joint_proj[:,:,0],1)[0] - torch.min(joint_proj[:,:,0],1)[0]) / (torch.max(joint_cam[:,:,0],1)[0] - torch.min(joint_cam[:,:,0],1)[0])
-            scale_y = (torch.max(joint_proj[:,:,1],1)[0] - torch.min(joint_proj[:,:,1],1)[0]) / (torch.max(joint_cam[:,:,1],1)[0] - torch.min(joint_cam[:,:,1],1)[0])
-            trans_x = joint_proj[:,:,0].mean(1) - (joint_cam[:,:,0] * scale_x[:,None]).mean(1)
-            trans_y = joint_proj[:,:,1].mean(1) - (joint_cam[:,:,1] * scale_y[:,None]).mean(1)
+ 
+            # warp focal lengths and princpts (right hand only)
+            _joint_cam = joint_cam.clone()
+            joint_idx = mano.th_joint_type['right']
+            _joint_cam[:,joint_idx,:] += rroot_cam[:,None,:]
+            scale_x = (torch.max(joint_proj[:,joint_idx,0],1)[0] - torch.min(joint_proj[:,joint_idx,0],1)[0]) / (torch.max(_joint_cam[:,joint_idx,0],1)[0] - torch.min(_joint_cam[:,joint_idx,0],1)[0])
+            scale_y = (torch.max(joint_proj[:,joint_idx,1],1)[0] - torch.min(joint_proj[:,joint_idx,1],1)[0]) / (torch.max(_joint_cam[:,joint_idx,1],1)[0] - torch.min(_joint_cam[:,joint_idx,1],1)[0])
+            trans_x = joint_proj[:,joint_idx,0].mean(1) - (_joint_cam[:,joint_idx,0] * scale_x[:,None]).mean(1)
+            trans_y = joint_proj[:,joint_idx,1].mean(1) - (_joint_cam[:,joint_idx,1] * scale_y[:,None]).mean(1)
+            render_rfocal = torch.stack((scale_x, scale_y),1)
+            render_rprincpt = torch.stack((trans_x, trans_y),1)
+ 
+            # warp focal lengths and princpts (left hand only)
+            _joint_cam = joint_cam.clone()
+            joint_idx = mano.th_joint_type['left']
+            _joint_cam[:,joint_idx,:] += lroot_cam[:,None,:]
+            scale_x = (torch.max(joint_proj[:,joint_idx,0],1)[0] - torch.min(joint_proj[:,joint_idx,0],1)[0]) / (torch.max(_joint_cam[:,joint_idx,0],1)[0] - torch.min(_joint_cam[:,joint_idx,0],1)[0])
+            scale_y = (torch.max(joint_proj[:,joint_idx,1],1)[0] - torch.min(joint_proj[:,joint_idx,1],1)[0]) / (torch.max(_joint_cam[:,joint_idx,1],1)[0] - torch.min(_joint_cam[:,joint_idx,1],1)[0])
+            trans_x = joint_proj[:,joint_idx,0].mean(1) - (_joint_cam[:,joint_idx,0] * scale_x[:,None]).mean(1)
+            trans_y = joint_proj[:,joint_idx,1].mean(1) - (_joint_cam[:,joint_idx,1] * scale_y[:,None]).mean(1)
+            render_lfocal = torch.stack((scale_x, scale_y),1)
+            render_lprincpt = torch.stack((trans_x, trans_y),1)
+              
+            # warp focal lengths and princpts (two hand)i
+            _joint_cam = joint_cam.clone()
+            _joint_cam[:,mano.th_joint_type['right'],:] += rroot_cam[:,None,:]
+            _joint_cam[:,mano.th_joint_type['left'],:] += (rroot_cam[:,None,:] + rel_trans[:,None,:])
+            scale_x = (torch.max(joint_proj[:,:,0],1)[0] - torch.min(joint_proj[:,:,0],1)[0]) / (torch.max(_joint_cam[:,:,0],1)[0] - torch.min(_joint_cam[:,:,0],1)[0])
+            scale_y = (torch.max(joint_proj[:,:,1],1)[0] - torch.min(joint_proj[:,:,1],1)[0]) / (torch.max(_joint_cam[:,:,1],1)[0] - torch.min(_joint_cam[:,:,1],1)[0])
+            trans_x = joint_proj[:,:,0].mean(1) - (_joint_cam[:,:,0] * scale_x[:,None]).mean(1)
+            trans_y = joint_proj[:,:,1].mean(1) - (_joint_cam[:,:,1] * scale_y[:,None]).mean(1)
             render_focal = torch.stack((scale_x, scale_y),1)
             render_princpt = torch.stack((trans_x, trans_y),1)
 
@@ -210,6 +233,10 @@ class Model(nn.Module):
             out['rmano_shape'] = rshape
             out['lroot_cam'] = lroot_cam
             out['rroot_cam'] = rroot_cam
+            out['render_rfocal'] = render_rfocal
+            out['render_rprincpt'] = render_rprincpt
+            out['render_lfocal'] = render_lfocal
+            out['render_lprincpt'] = render_lprincpt
             out['render_focal'] = render_focal
             out['render_princpt'] = render_princpt
             if 'bb2img_trans' in meta_info:
