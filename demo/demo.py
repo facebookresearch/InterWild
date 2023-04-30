@@ -121,12 +121,12 @@ for img_path in tqdm(img_path_list):
                 mesh = mesh + rroot_cam[None,:]
             else:
                 mesh = mesh + rroot_cam[None,:] + rel_trans[None,:]
-            render_focal = out['render_focal']
-            render_princpt = out['render_princpt']
+            render_focal = out['render_focal'].clone()
+            render_princpt = out['render_princpt'].clone()
         else:
             mesh = mesh + root_cam
-            render_focal = out['render_' + h[0] + 'focal']
-            render_princpt = out['render_' + h[0] + 'princpt']
+            render_focal = out['render_' + h[0] + 'focal'].clone()
+            render_princpt = out['render_' + h[0] + 'princpt'].clone()
             
         # warp from cfg.input_img_shape to the orignal image space
         render_focal[:,0] = render_focal[:,0] / cfg.input_img_shape[1] * bbox[2]
