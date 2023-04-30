@@ -138,11 +138,10 @@ class Model(nn.Module):
         if mode == 'train':
             # loss functions
             loss = {}
-            if not cfg.use_gt_hand_bbox:
-                loss['lhand_bbox_center'] = self.coord_loss(lhand_bbox_center, targets['lhand_bbox_center'], meta_info['lhand_bbox_valid'][:,None]) 
-                loss['lhand_bbox_size'] = self.coord_loss(lhand_bbox_size, targets['lhand_bbox_size'], meta_info['lhand_bbox_valid'][:,None])
-                loss['rhand_bbox_center'] = self.coord_loss(rhand_bbox_center, targets['rhand_bbox_center'], meta_info['rhand_bbox_valid'][:,None]) 
-                loss['rhand_bbox_size'] = self.coord_loss(rhand_bbox_size, targets['rhand_bbox_size'], meta_info['rhand_bbox_valid'][:,None])
+            loss['lhand_bbox_center'] = self.coord_loss(lhand_bbox_center, targets['lhand_bbox_center'], meta_info['lhand_bbox_valid'][:,None]) 
+            loss['lhand_bbox_size'] = self.coord_loss(lhand_bbox_size, targets['lhand_bbox_size'], meta_info['lhand_bbox_valid'][:,None])
+            loss['rhand_bbox_center'] = self.coord_loss(rhand_bbox_center, targets['rhand_bbox_center'], meta_info['rhand_bbox_valid'][:,None]) 
+            loss['rhand_bbox_size'] = self.coord_loss(rhand_bbox_size, targets['rhand_bbox_size'], meta_info['rhand_bbox_valid'][:,None])
             loss['rel_trans'] = self.coord_loss(rel_trans[:,None,:], targets['rel_trans'][:,None,:], meta_info['rel_trans_valid'][:,None,:])
             loss['mano_pose'] = self.param_loss(mano_pose, targets['mano_pose'], meta_info['mano_pose_valid'])
             loss['mano_shape'] = self.param_loss(mano_shape, targets['mano_shape'], meta_info['mano_shape_valid'])
