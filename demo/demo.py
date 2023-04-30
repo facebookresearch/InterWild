@@ -103,7 +103,7 @@ for img_path in tqdm(img_path_list):
 
     # for each right and left hand
     prev_depth = None
-    img = torch.flip(img.permute(0,2,3,1), [3]) * 255 # batch_size, img_height, img_width, 3
+    render_out = torch.flip(torch.from_numpy(original_img).float().cuda()[None,:,:,:], [3]) # batch_size, img_height, img_width, 3
     rroot_cam = out['rroot_cam'].cpu().numpy()[0] # 3D position of the right hand root joint (wrist)
     rel_trans = out['rel_trans'].cpu().numpy()[0] # 3D relative translation between two hands
     for h in ('right', 'left'):
@@ -127,6 +127,12 @@ for img_path in tqdm(img_path_list):
             mesh = mesh + root_cam
             render_focal = out['render_' + h[0] + 'focal']
             render_princpt = out['render_' + h[0] + 'princpt']
+            
+        # warp from cfg.input_img_shape to the orignal image space
+        render_focal[:,0] = render_focal[:,0] / cfg.input_img_shape[1] * bbox[2]
+        render_focal[:,1] = render_focal[:,1] / cfg.input_img_shape[0] * bbox[3]
+        render_princpt[:,0] = render_princpt[:,0] / cfg.input_img_shape[1] * bbox[2] + bbox[0]
+        render_princpt[:,1] = render_princpt[:,1] / cfg.input_img_shape[0] * bbox[3] + bbox[1]
 
         # bbox save
         hand_bbox[:,0] = hand_bbox[:,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
@@ -151,18 +157,18 @@ for img_path in tqdm(img_path_list):
             mesh = torch.from_numpy(mesh[None,:,:]).float().cuda()
             face = torch.from_numpy(mano.face[h][None,:,:].astype(np.int32)).cuda()
             render_cam_params = {'focal': render_focal, 'princpt': render_princpt}
-            rgb, depth = render_mesh_orthogonal(mesh, face, render_cam_params, cfg.input_img_shape, h)
+            rgb, depth = render_mesh_orthogonal(mesh, face, render_cam_params, (img_height,img_width), h)
         cv2.imwrite(osp.join(render_save_path, file_name + '_' + h + '.jpg'), rgb[0].cpu().numpy()) # save render of each hand
         valid_mask = (depth > 0)
         if prev_depth is None:
             render_mask = valid_mask.float()
-            img = rgb * render_mask + img * (1 - render_mask)
+            render_out = rgb * render_mask + render_out * (1 - render_mask)
             prev_depth = depth
         else:
             render_mask = (valid_mask * (((depth < prev_depth) + (prev_depth <= 0)) > 0)).float()
-            img = rgb * render_mask + img * (1 - render_mask)
+            render_out = rgb * render_mask + render_out * (1 - render_mask)
             prev_depth = depth * render_mask + prev_depth * (1 - render_mask)
     
     # save render of two hands
-    cv2.imwrite(osp.join(render_save_path, file_name + '.jpg'), img[0].cpu().numpy())
+    cv2.imwrite(osp.join(render_save_path, file_name + '.jpg'), render_out[0].cpu().numpy())
 
