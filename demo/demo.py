@@ -158,7 +158,6 @@ for img_path in tqdm(img_path_list):
             face = torch.from_numpy(mano.face[h][None,:,:].astype(np.int32)).cuda()
             render_cam_params = {'focal': render_focal, 'princpt': render_princpt}
             rgb, depth = render_mesh_orthogonal(mesh, face, render_cam_params, (img_height,img_width), h)
-        cv2.imwrite(osp.join(render_save_path, file_name + '_' + h + '.jpg'), rgb[0].cpu().numpy()) # save render of each hand
         valid_mask = (depth > 0)
         if prev_depth is None:
             render_mask = valid_mask.float()
@@ -169,6 +168,6 @@ for img_path in tqdm(img_path_list):
             render_out = rgb * render_mask + render_out * (1 - render_mask)
             prev_depth = depth * render_mask + prev_depth * (1 - render_mask)
     
-    # save render of two hands
+    # save render
     cv2.imwrite(osp.join(render_save_path, file_name + '.jpg'), render_out[0].cpu().numpy())
 
