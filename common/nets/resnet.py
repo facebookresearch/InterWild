@@ -83,6 +83,7 @@ class ResNetBackbone(nn.Module):
                     'resnet50': ResNet50_Weights.IMAGENET1K_V2.url
                     }
         org_resnet = torch.utils.model_zoo.load_url(model_urls[self.name])
+
         # drop orginal resnet fc layer, add 'None' in case of no fc layer, that will raise error
         org_resnet.pop('fc.weight', None)
         org_resnet.pop('fc.bias', None)

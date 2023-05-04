@@ -8,10 +8,8 @@
 
 import torch
 import numpy as np
-import scipy
 from config import cfg
 from torch.nn import functional as F
-import torchgeometry as tgm
 
 def cam2pixel(cam_coord, f, c):
     x = cam_coord[:,0] / cam_coord[:,2] * f[0] + c[0]
@@ -19,42 +17,9 @@ def cam2pixel(cam_coord, f, c):
     z = cam_coord[:,2]
     return np.stack((x,y,z),1)
 
-def pixel2cam(pixel_coord, f, c):
-    x = (pixel_coord[:,0] - c[0]) / f[0] * pixel_coord[:,2]
-    y = (pixel_coord[:,1] - c[1]) / f[1] * pixel_coord[:,2]
-    z = pixel_coord[:,2]
-    return np.stack((x,y,z),1)
-
 def world2cam(world_coord, R, t):
     cam_coord = np.dot(R, world_coord.transpose(1,0)).transpose(1,0) + t.reshape(1,3)
     return cam_coord
-
-def cam2world(cam_coord, R, t):
-    world_coord = np.dot(np.linalg.inv(R), (cam_coord - t.reshape(1,3)).transpose(1,0)).transpose(1,0)
-    return world_coord
-
-def rigid_transform_3D(A, B):
-    n, dim = A.shape
-    centroid_A = np.mean(A, axis = 0)
-    centroid_B = np.mean(B, axis = 0)
-    H = np.dot(np.transpose(A - centroid_A), B - centroid_B) / n
-    U, s, V = np.linalg.svd(H)
-    R = np.dot(np.transpose(V), np.transpose(U))
-    if np.linalg.det(R) < 0:
-        s[-1] = -s[-1]
-        V[2] = -V[2]
-        R = np.dot(np.transpose(V), np.transpose(U))
-
-    varP = np.var(A, axis=0).sum()
-    c = 1/varP * np.sum(s) 
-
-    t = -np.dot(c*R, np.transpose(centroid_A)) + np.transpose(centroid_B)
-    return c, R, t
-
-def rigid_align(A, B):
-    c, R, t = rigid_transform_3D(A, B)
-    A2 = np.transpose(np.dot(c*R, np.transpose(A))) + t
-    return A2
 
 def transform_joint_to_other_db(src_joint, src_name, dst_name):
     src_joint_num = len(src_name)
@@ -69,22 +34,6 @@ def transform_joint_to_other_db(src_joint, src_name, dst_name):
 
     return new_joint
 
-def rot6d_to_axis_angle(x):
-    batch_size = x.shape[0]
-
-    x = x.view(-1,3,2)
-    a1 = x[:, :, 0]
-    a2 = x[:, :, 1]
-    b1 = F.normalize(a1)
-    b2 = F.normalize(a2 - torch.einsum('bi,bi->b', b1, a2).unsqueeze(-1) * b1)
-    b3 = torch.cross(b1, b2)
-    rot_mat = torch.stack((b1, b2, b3), dim=-1) # 3x3 rotation matrix
-    
-    rot_mat = torch.cat([rot_mat,torch.zeros((batch_size,3,1)).cuda().float()],2) # 3x4 rotation matrix
-    axis_angle = tgm.rotation_matrix_to_angle_axis(rot_mat).reshape(-1,3) # axis-angle
-    axis_angle[torch.isnan(axis_angle)] = 0.0
-    return axis_angle
-
 def sample_joint_features(img_feat, joint_xy):
     height, width = img_feat.shape[2:]
     x = joint_xy[:,:,0] / (width-1) * 2 - 1
@@ -93,13 +42,6 @@ def sample_joint_features(img_feat, joint_xy):
     img_feat = F.grid_sample(img_feat, grid, align_corners=True)[:,:,:,0] # batch_size, channel_dim, joint_num
     img_feat = img_feat.permute(0,2,1).contiguous() # batch_size, joint_num, channel_dim
     return img_feat
-
-def soft_argmax_1d(heatmap1d):
-    depth = heatmap1d.shape[2]
-    heatmap1d = F.softmax(heatmap1d, 2)
-    accu = heatmap1d * torch.arange(depth).float().cuda()[None,None,:]
-    coord_out = accu.sum(dim=2)
-    return coord_out
 
 def soft_argmax_2d(heatmap2d):
     batch_size = heatmap2d.shape[0]

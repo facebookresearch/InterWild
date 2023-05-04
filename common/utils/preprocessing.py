@@ -11,7 +11,7 @@ import cv2
 import random
 from config import cfg
 import math
-from utils.human_models import mano
+from utils.mano import mano
 from utils.transforms import cam2pixel, transform_joint_to_other_db
 from plyfile import PlyData, PlyElement
 import torch

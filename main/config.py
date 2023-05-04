@@ -15,7 +15,7 @@ class Config:
     ## dataset
     trainset_3d = ['InterHand26M'] 
     trainset_2d = ['MSCOCO']
-    testset = 'MSCOCO' # InterHand26M, HIC, MSCOCO
+    testset = 'HIC' # InterHand26M, HIC, MSCOCO
 
     ## model setting
     body_resnet_type = 50

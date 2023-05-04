@@ -12,7 +12,6 @@ import os.path as osp
 from config import cfg
 from utils.transforms import transform_joint_to_other_db
 import smplx
-import pickle
 
 class MANO(object):
     def __init__(self):

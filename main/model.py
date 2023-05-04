@@ -10,11 +10,10 @@ import torch.nn as nn
 from torch.nn import functional as F
 from nets.resnet import ResNetBackbone
 from nets.module import BoxNet, HandRoI, PositionNet, RotationNet, TransNet
-from nets.loss import CoordLoss, ParamLoss
-from utils.human_models import mano
-from utils.transforms import rot6d_to_axis_angle, restore_bbox
+from nets.loss import CoordLoss, PoseLoss
+from utils.mano import mano
+from utils.transforms import restore_bbox
 from config import cfg
-import math
 import copy
 
 class Model(nn.Module):
@@ -27,43 +26,24 @@ class Model(nn.Module):
         self.hand_position_net = hand_position_net
         self.hand_rotation_net = hand_rotation_net
         self.hand_trans_net = hand_trans_net
-        self.joint_regressor = nn.Linear(mano.vertex_num*3, mano.sh_joint_num*3)
         
-        self.mano_layer_right = copy.deepcopy(mano.layer['right']).cuda()
-        self.mano_layer_left = copy.deepcopy(mano.layer['left']).cuda()
+        self.mano_layer = {k: copy.deepcopy(v).cuda() for k,v in mano.layer.items()} # k: 'right' and 'left'
         self.coord_loss = CoordLoss()
-        self.param_loss = ParamLoss()
+        self.pose_loss = PoseLoss()
  
-        self.trainable_modules = [self.body_backbone, self.body_box_net, self.hand_roi_net, self.hand_position_net, self.hand_rotation_net, self.hand_trans_net, self.joint_regressor]
+        self.trainable_modules = [self.body_backbone, self.body_box_net, self.hand_roi_net, self.hand_position_net, self.hand_rotation_net, self.hand_trans_net]
     
-    def forward_rotation_net(self, hand_feat, hand_coord):
-        root_pose_6d, pose_param_6d, shape_param, cam_param = self.hand_rotation_net(hand_feat, hand_coord)
-
-        # change 6d pose -> axis angles
-        root_pose = rot6d_to_axis_angle(root_pose_6d).reshape(-1,3)
-        pose_param = rot6d_to_axis_angle(pose_param_6d.view(-1,6)).reshape(-1,(mano.orig_joint_num-1)*3)
-        cam_trans = self.get_camera_trans(cam_param)
-        return root_pose, pose_param, shape_param, cam_trans
-
-    def get_camera_trans(self, cam_param):
-        # camera translation
-        t_xy = cam_param[:,:2]
-        gamma = torch.sigmoid(cam_param[:,2]) # apply sigmoid to make it positive
-        k_value = torch.FloatTensor([math.sqrt(cfg.focal[0]*cfg.focal[1]*cfg.camera_3d_size*cfg.camera_3d_size/(cfg.input_hand_shape[0]*cfg.input_hand_shape[1]))]).cuda().view(-1)
-        t_z = k_value * gamma
-        cam_trans = torch.cat((t_xy, t_z[:,None]),1)
-        return cam_trans
-
-    def get_coord(self, root_pose, hand_pose, shape, cam_trans, hand_type):
+    def get_coord(self, root_pose, hand_pose, shape, root_trans, hand_type):
         batch_size = root_pose.shape[0]
-        if hand_type == 'right':
-            output = self.mano_layer_right(betas=shape, hand_pose=hand_pose, global_orient=root_pose, transl=cam_trans)
-        else:
-            output = self.mano_layer_left(betas=shape, hand_pose=hand_pose, global_orient=root_pose, transl=cam_trans)
+        zero_trans = torch.zeros((batch_size,3)).float().cuda()
+        output = self.mano_layer[hand_type](betas=shape, hand_pose=hand_pose, global_orient=root_pose, transl=zero_trans)
 
         # camera-centered 3D coordinate
         mesh_cam = output.vertices
         joint_cam = torch.bmm(torch.from_numpy(mano.sh_joint_regressor).cuda()[None,:,:].repeat(batch_size,1,1), mesh_cam)
+        root_cam = joint_cam[:,mano.sh_root_joint_idx,:]
+        mesh_cam = mesh_cam - root_cam[:,None,:] + root_trans[:,None,:]
+        joint_cam = joint_cam - root_cam[:,None,:] + root_trans[:,None,:]
 
         # project 3D coordinates to 2D space
         x = joint_cam[:,:,0] / (joint_cam[:,:,2] + 1e-4) * cfg.focal[0] + cfg.princpt[0]
@@ -82,105 +62,109 @@ class Model(nn.Module):
         # body network
         body_img = F.interpolate(inputs['img'], cfg.input_body_shape, mode='bilinear')
         body_feat = self.body_backbone(body_img)
-        lhand_bbox_center, lhand_bbox_size, rhand_bbox_center, rhand_bbox_size = self.body_box_net(body_feat)
-        lhand_bbox = restore_bbox(lhand_bbox_center, lhand_bbox_size, cfg.input_hand_shape[1]/cfg.input_hand_shape[0], 2.0).detach() # xyxy in (cfg.input_body_shape[1], cfg.input_body_shape[0]) space
+        rhand_bbox_center, rhand_bbox_size, lhand_bbox_center, lhand_bbox_size = self.body_box_net(body_feat)
         rhand_bbox = restore_bbox(rhand_bbox_center, rhand_bbox_size, cfg.input_hand_shape[1]/cfg.input_hand_shape[0], 2.0).detach() # xyxy in (cfg.input_body_shape[1], cfg.input_body_shape[0]) space
-        hand_feat = self.hand_roi_net(inputs['img'], lhand_bbox, rhand_bbox) # (2N, ...). flipped left hand + right hand
+        lhand_bbox = restore_bbox(lhand_bbox_center, lhand_bbox_size, cfg.input_hand_shape[1]/cfg.input_hand_shape[0], 2.0).detach() # xyxy in (cfg.input_body_shape[1], cfg.input_body_shape[0]) space
+        hand_feat, orig2hand_trans, hand2orig_trans = self.hand_roi_net(inputs['img'], rhand_bbox, lhand_bbox) # (2N, ...). right hand + flipped left hand
         
         # hand network
-        joint_img = self.hand_position_net(hand_feat) # (2N, J_P, 3)
-        mano_root_pose, mano_hand_pose, mano_shape, cam_trans = self.forward_rotation_net(hand_feat, joint_img.detach())
-        lhand_num = len(lhand_bbox); rhand_num = len(rhand_bbox);
+        joint_img = self.hand_position_net(hand_feat)
+        mano_root_pose, mano_hand_pose, mano_shape, root_trans = self.hand_rotation_net(hand_feat, joint_img.detach())
+        rhand_num, lhand_num = len(rhand_bbox), len(lhand_bbox)
         # restore flipped left hand joint coordinates
-        ljoint_img = joint_img[:lhand_num,:,:]
-        ljoint_img = torch.cat((cfg.output_hand_hm_shape[2] - 1 - ljoint_img[:,:,0:1], ljoint_img[:,:,1:]),2) # this actually should have been done in input_hand_shape after upsampling the coordinates.. a bug to be fixed.
-        rjoint_img = joint_img[lhand_num:,:,:]
-        # restore flipped left hand joint rotations
-        lroot_pose = mano_root_pose[:lhand_num,:]
+        rjoint_img = joint_img[:rhand_num,:,:]
+        ljoint_img = joint_img[rhand_num:,:,:]
+        ljoint_img_x = ljoint_img[:,:,0] / cfg.output_hand_hm_shape[2] * cfg.input_hand_shape[1]
+        ljoint_img_x = cfg.input_hand_shape[1] - 1 - ljoint_img_x
+        ljoint_img_x = ljoint_img_x / cfg.input_hand_shape[1] * cfg.output_hand_hm_shape[2]
+        ljoint_img = torch.cat((ljoint_img_x[:,:,None], ljoint_img[:,:,1:]),2)
+        # restore flipped left root rotations
+        rroot_pose = mano_root_pose[:rhand_num,:]
+        lroot_pose = mano_root_pose[rhand_num:,:]
         lroot_pose = torch.cat((lroot_pose[:,0:1], -lroot_pose[:,1:3]),1)
-        rroot_pose = mano_root_pose[lhand_num:,:]
         # restore flipped left hand joint rotations
-        lhand_pose = mano_hand_pose[:lhand_num,:].reshape(-1,mano.orig_joint_num-1,3) 
+        rhand_pose = mano_hand_pose[:rhand_num,:]
+        lhand_pose = mano_hand_pose[rhand_num:,:].reshape(-1,mano.orig_joint_num-1,3) 
         lhand_pose = torch.cat((lhand_pose[:,:,0:1], -lhand_pose[:,:,1:3]),2).view(lhand_num,-1)
-        rhand_pose = mano_hand_pose[lhand_num:,:]
         # shape
-        lshape = mano_shape[:lhand_num,:]
-        rshape = mano_shape[lhand_num:,:]
-        # restore flipped left camera translation
-        lcam_trans = cam_trans[:lhand_num,:]
-        lcam_trans = torch.cat((-lcam_trans[:,0:1], lcam_trans[:,1:]),1)
-        rcam_trans = cam_trans[lhand_num:,:]
+        rshape = mano_shape[:rhand_num,:]
+        lshape = mano_shape[rhand_num:,:]
+        # restore flipped left root translation
+        rroot_trans = root_trans[:rhand_num,:]
+        lroot_trans = root_trans[rhand_num:,:]
+        lroot_trans = torch.cat((-lroot_trans[:,0:1], lroot_trans[:,1:]),1)
+        # affine transformation matrix
+        rhand_orig2hand_trans = orig2hand_trans[:rhand_num]
+        lhand_orig2hand_trans = orig2hand_trans[rhand_num:]
+        rhand_hand2orig_trans = hand2orig_trans[:rhand_num]
+        lhand_hand2orig_trans = hand2orig_trans[rhand_num:]
 
         # get outputs
-        ljoint_proj, ljoint_cam, lmesh_cam, lroot_cam = self.get_coord(lroot_pose, lhand_pose, lshape, lcam_trans, 'left')
-        rjoint_proj, rjoint_cam, rmesh_cam, rroot_cam = self.get_coord(rroot_pose, rhand_pose, rshape, rcam_trans, 'right')
+        rjoint_proj, rjoint_cam, rmesh_cam, rroot_cam = self.get_coord(rroot_pose, rhand_pose, rshape, rroot_trans, 'right')
+        ljoint_proj, ljoint_cam, lmesh_cam, lroot_cam = self.get_coord(lroot_pose, lhand_pose, lshape, lroot_trans, 'left')
         
         # relative translation
-        rel_trans = self.hand_trans_net(rjoint_img.detach(), ljoint_img.detach(), rhand_bbox.detach(), lhand_bbox.detach())
+        rel_trans = self.hand_trans_net(rjoint_img.detach(), ljoint_img.detach(), rhand_hand2orig_trans.detach(), lhand_hand2orig_trans.detach())
 
-        # get joint coordinates from learnable joint regressor
-        lmesh_cam = torch.cat((-lmesh_cam[:,:,0:1], lmesh_cam[:,:,1:]),2) # flip to the right hand mesh
-        mesh_cam = torch.cat((lmesh_cam, rmesh_cam))
-        joint_cam_learn = self.joint_regressor(mesh_cam.detach().view(-1,mano.vertex_num*3)).view(-1,mano.sh_joint_num,3) # detach mesh to prevent gradients from back propagating
-        ljoint_cam_learn = joint_cam_learn[:lhand_num,:,:]
-        ljoint_cam_learn = torch.cat((-ljoint_cam_learn[:,:,0:1], ljoint_cam_learn[:,:,1:]),2) # flip back to the left hand
-        rjoint_cam_learn = joint_cam_learn[lhand_num:,:,:]
-        lmesh_cam = torch.cat((-lmesh_cam[:,:,0:1], lmesh_cam[:,:,1:]),2) # flip back to the left hand
-        
         # combine outputs for the loss calculation (follow mano.th_joints_name)
         mano_pose = torch.cat((rroot_pose, rhand_pose, lroot_pose, lhand_pose),1)
         mano_shape = torch.cat((rshape, lshape),1)
         joint_cam = torch.cat((rjoint_cam, ljoint_cam),1)
-        joint_cam_learn = torch.cat((rjoint_cam_learn, ljoint_cam_learn),1)
         joint_img = torch.cat((rjoint_img, ljoint_img),1)
         joint_proj = torch.cat((rjoint_proj, ljoint_proj),1)
 
         if mode == 'train':
             # loss functions
             loss = {}
-            loss['lhand_bbox_center'] = self.coord_loss(lhand_bbox_center, targets['lhand_bbox_center'], meta_info['lhand_bbox_valid'][:,None]) 
-            loss['lhand_bbox_size'] = self.coord_loss(lhand_bbox_size, targets['lhand_bbox_size'], meta_info['lhand_bbox_valid'][:,None])
-            loss['rhand_bbox_center'] = self.coord_loss(rhand_bbox_center, targets['rhand_bbox_center'], meta_info['rhand_bbox_valid'][:,None]) 
-            loss['rhand_bbox_size'] = self.coord_loss(rhand_bbox_size, targets['rhand_bbox_size'], meta_info['rhand_bbox_valid'][:,None])
-            loss['rel_trans'] = self.coord_loss(rel_trans[:,None,:], targets['rel_trans'][:,None,:], meta_info['rel_trans_valid'][:,None,:])
-            loss['mano_pose'] = self.param_loss(mano_pose, targets['mano_pose'], meta_info['mano_pose_valid'])
-            loss['mano_shape'] = self.param_loss(mano_shape, targets['mano_shape'], meta_info['mano_shape_valid'])
-            loss['joint_cam'] = self.coord_loss(joint_cam, targets['joint_cam'], meta_info['joint_valid'] * meta_info['is_3D'][:,None,None]) * 10
-            loss['joint_cam_learn'] = self.coord_loss(joint_cam_learn, targets['joint_cam'], meta_info['joint_valid'] * meta_info['is_3D'][:,None,None]) * 10
-            loss['mano_joint_cam'] = self.coord_loss(joint_cam, targets['mano_joint_cam'], meta_info['mano_joint_valid']) * 10
-
-            # change hand target joint_img and joint_trunc according to hand bbox (cfg.output_body_hm_shape -> hand bbox space)
-            for part_name, bbox in (('left', lhand_bbox), ('right', rhand_bbox)):
+            loss['rhand_bbox_center'] = torch.abs(rhand_bbox_center - targets['rhand_bbox_center']) * meta_info['rhand_bbox_valid'][:,None]
+            loss['rhand_bbox_size'] = torch.abs(rhand_bbox_size - targets['rhand_bbox_size']) * meta_info['rhand_bbox_valid'][:,None]
+            loss['lhand_bbox_center'] = torch.abs(lhand_bbox_center - targets['lhand_bbox_center']) * meta_info['lhand_bbox_valid'][:,None]
+            loss['lhand_bbox_size'] = torch.abs(lhand_bbox_size - targets['lhand_bbox_size']) * meta_info['lhand_bbox_valid'][:,None]
+            loss['rel_trans'] = torch.abs(rel_trans - targets['rel_trans']) * meta_info['rel_trans_valid']
+            loss['mano_pose'] = self.pose_loss(mano_pose, targets['mano_pose'], meta_info['mano_pose_valid'])
+            loss['mano_shape'] = torch.abs(mano_shape - targets['mano_shape']) * meta_info['mano_shape_valid']
+            loss['joint_cam'] = torch.abs(joint_cam - targets['joint_cam']) * meta_info['joint_valid'] * meta_info['is_3D'][:,None,None] * 10
+            loss['mano_joint_cam'] = torch.abs(joint_cam - targets['mano_joint_cam']) * meta_info['mano_joint_valid'] * 10
+            
+            # cfg.output_body_hm_shape -> cfg.output_hand_hm_shape
+            for part_name, trans in (('right', rhand_orig2hand_trans), ('left', lhand_orig2hand_trans)):
                 for coord_name, trunc_name in (('joint_img', 'joint_trunc'), ('mano_joint_img', 'mano_joint_trunc')):
                     x = targets[coord_name][:,mano.th_joint_type[part_name],0]
                     y = targets[coord_name][:,mano.th_joint_type[part_name],1]
                     z = targets[coord_name][:,mano.th_joint_type[part_name],2]
                     trunc = meta_info[trunc_name][:,mano.th_joint_type[part_name],0]
-                    
-                    x -= (bbox[:,None,0] / cfg.input_body_shape[1] * cfg.output_body_hm_shape[2])
-                    x *= (cfg.output_hand_hm_shape[2] / ((bbox[:,None,2] - bbox[:,None,0]) / cfg.input_body_shape[1] * cfg.output_body_hm_shape[2]))
-                    y -= (bbox[:,None,1] / cfg.input_body_shape[0] * cfg.output_body_hm_shape[1])
-                    y *= (cfg.output_hand_hm_shape[1] / ((bbox[:,None,3] - bbox[:,None,1]) / cfg.input_body_shape[0] * cfg.output_body_hm_shape[1]))
-                    z *= cfg.output_hand_hm_shape[0] / cfg.output_body_hm_shape[0]
+
+                    x = x / cfg.output_body_hm_shape[2] * cfg.input_img_shape[1]
+                    y = y / cfg.output_body_hm_shape[1] * cfg.input_img_shape[0]
+                    xy1 = torch.stack((x,y,torch.ones_like(x)),2)
+                    xy = torch.bmm(trans, xy1.permute(0,2,1)).permute(0,2,1)
+
+                    x, y = xy[:,:,0], xy[:,:,1]
+                    x = x / cfg.input_hand_shape[1] * cfg.output_hand_hm_shape[2]
+                    y = y / cfg.input_hand_shape[0] * cfg.output_hand_hm_shape[1]
+                    z = z / cfg.output_body_hm_shape[0] * cfg.output_hand_hm_shape[0]
                     trunc *= ((x >= 0) * (x < cfg.output_hand_hm_shape[2]) * (y >= 0) * (y < cfg.output_hand_hm_shape[1]))
-                    
+
                     coord = torch.stack((x,y,z),2)
                     trunc = trunc[:,:,None]
                     targets[coord_name] = torch.cat((targets[coord_name][:,:mano.th_joint_type[part_name][0],:], coord, targets[coord_name][:,mano.th_joint_type[part_name][-1]+1:,:]),1)
                     meta_info[trunc_name] = torch.cat((meta_info[trunc_name][:,:mano.th_joint_type[part_name][0],:], trunc, meta_info[trunc_name][:,mano.th_joint_type[part_name][-1]+1:,:]),1)
 
             loss['joint_img'] = self.coord_loss(joint_img, targets['joint_img'], meta_info['joint_trunc'], meta_info['is_3D'])
-            loss['mano_joint_img'] = self.coord_loss(joint_img, targets['mano_joint_img'], meta_info['mano_joint_trunc'])
-            loss['joint_proj'] = self.coord_loss(joint_proj, targets['joint_img'][:,:,:2], meta_info['joint_valid'])
+            loss['mano_joint_img'] = torch.abs(joint_img - targets['mano_joint_img']) * meta_info['mano_joint_trunc']
+            loss['joint_proj'] = torch.abs(joint_proj - targets['joint_img'][:,:,:2]) * meta_info['joint_valid']
             return loss
         else:
-            # warp joint_proj from cfg.output_hand_hm_shape to cfg.input_img_shape
-            for part_name, bbox in (('left', lhand_bbox), ('right', rhand_bbox)):
-                joint_proj[:,mano.th_joint_type[part_name],0] *= (((bbox[:,None,2] - bbox[:,None,0]) / cfg.input_body_shape[1] * cfg.input_img_shape[1]) / cfg.output_hand_hm_shape[2])
-                joint_proj[:,mano.th_joint_type[part_name],0] += (bbox[:,None,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1])
-                joint_proj[:,mano.th_joint_type[part_name],1] *= (((bbox[:,None,3] - bbox[:,None,1]) / cfg.input_body_shape[0] * cfg.input_img_shape[0]) / cfg.output_hand_hm_shape[1])
-                joint_proj[:,mano.th_joint_type[part_name],1] += (bbox[:,None,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0])
- 
+            # cfg.output_hand_hm_shape -> cfg.input_img_shape
+            for part_name, trans in (('right', rhand_hand2orig_trans), ('left', lhand_hand2orig_trans)):
+                x = joint_proj[:,mano.th_joint_type[part_name],0] / cfg.output_hand_hm_shape[2] * cfg.input_hand_shape[1]
+                y = joint_proj[:,mano.th_joint_type[part_name],1] / cfg.output_hand_hm_shape[1] * cfg.input_hand_shape[0]
+
+                xy1 = torch.stack((x, y, torch.ones_like(x)),2)
+                xy = torch.bmm(trans, xy1.permute(0,2,1)).permute(0,2,1)
+                joint_proj[:,mano.th_joint_type[part_name],0] = xy[:,:,0]
+                joint_proj[:,mano.th_joint_type[part_name],1] = xy[:,:,1]
+
             # warp focal lengths and princpts (right hand only)
             _joint_cam = joint_cam.clone()
             joint_idx = mano.th_joint_type['right']
@@ -218,20 +202,20 @@ class Model(nn.Module):
             out = {}
             out['img'] = inputs['img']
             out['rel_trans'] = rel_trans
-            out['lhand_bbox'] = restore_bbox(lhand_bbox_center, lhand_bbox_size, None, 1.0)
             out['rhand_bbox'] = restore_bbox(rhand_bbox_center, rhand_bbox_size, None, 1.0)
-            out['lmano_mesh_cam'] = lmesh_cam
+            out['lhand_bbox'] = restore_bbox(lhand_bbox_center, lhand_bbox_size, None, 1.0)
             out['rmano_mesh_cam'] = rmesh_cam
-            out['lmano_joint_cam'] = ljoint_cam_learn
-            out['rmano_joint_cam'] = rjoint_cam_learn
-            out['lmano_root_pose'] = lroot_pose
+            out['lmano_mesh_cam'] = lmesh_cam
+            out['rmano_joint_cam'] = rjoint_cam
+            out['lmano_joint_cam'] = ljoint_cam
             out['rmano_root_pose'] = rroot_pose
-            out['lmano_hand_pose'] = lhand_pose
+            out['lmano_root_pose'] = lroot_pose
             out['rmano_hand_pose'] = rhand_pose
-            out['lmano_shape'] = lshape
+            out['lmano_hand_pose'] = lhand_pose
             out['rmano_shape'] = rshape
-            out['lroot_cam'] = lroot_cam
+            out['lmano_shape'] = lshape
             out['rroot_cam'] = rroot_cam
+            out['lroot_cam'] = lroot_cam
             out['render_rfocal'] = render_rfocal
             out['render_rprincpt'] = render_rprincpt
             out['render_lfocal'] = render_lfocal

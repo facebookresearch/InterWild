@@ -9,9 +9,12 @@ import torch
 import torch.nn as nn
 import torchvision
 from torch.nn import functional as F
-from nets.layer import make_conv_layers, make_conv1d_layers, make_deconv_layers, make_linear_layers
-from utils.human_models import mano
+from nets.layer import make_conv_layers, make_deconv_layers, make_linear_layers
+from utils.mano import mano
 from utils.transforms import sample_joint_features, soft_argmax_2d, soft_argmax_3d
+from pytorch3d.transforms import rotation_6d_to_matrix, matrix_to_axis_angle
+import kornia
+import math
 from config import cfg
 
 class PositionNet(nn.Module):
@@ -38,20 +41,31 @@ class RotationNet(nn.Module):
         self.shape_out = make_linear_layers([2048, mano.shape_param_dim], relu_final=False)
         self.cam_out = make_linear_layers([2048, 3], relu_final=False)
 
+    def get_root_trans(self, cam_param):
+        t_xy = cam_param[:,:2]
+        gamma = torch.sigmoid(cam_param[:,2]) # apply sigmoid to make it positive
+        k_value = torch.FloatTensor([math.sqrt(cfg.focal[0]*cfg.focal[1]*cfg.camera_3d_size*cfg.camera_3d_size/(cfg.input_hand_shape[0]*cfg.input_hand_shape[1]))]).cuda().view(-1)
+        t_z = k_value * gamma
+        root_trans = torch.cat((t_xy, t_z[:,None]),1)
+        return root_trans
+
     def forward(self, hand_feat, joint_img):
         batch_size = hand_feat.shape[0]
         
-        # shape and camera parameters
+        # shape and root translation
         shape_param = self.shape_out(hand_feat.mean((2,3)))
         cam_param = self.cam_out(hand_feat.mean((2,3)))
+        root_trans = self.get_root_trans(cam_param)
         
         # pose
         hand_feat = self.conv(hand_feat)
         hand_feat = sample_joint_features(hand_feat, joint_img[:,:,:2]) # batch_size, joint_num, feat_dim
         hand_feat = torch.cat((hand_feat, joint_img),2).view(batch_size,-1)
         root_pose = self.root_pose_out(hand_feat)
-        pose_param = self.pose_out(hand_feat)
-        return root_pose, pose_param, shape_param, cam_param
+        root_pose = matrix_to_axis_angle(rotation_6d_to_matrix(root_pose))
+        hand_pose = self.pose_out(hand_feat).view(batch_size,-1,6)
+        hand_pose = matrix_to_axis_angle(rotation_6d_to_matrix(hand_pose)).view(batch_size,-1)
+        return root_pose, hand_pose, shape_param, root_trans
 
 class TransNet(nn.Module):
     def __init__(self, backbone):
@@ -114,16 +128,32 @@ class TransNet(nn.Module):
         bbox[:,3] = bbox[:,3] + bbox[:,1]
         return bbox
 
-    def forward(self, rjoint_img, ljoint_img, rhand_bbox, lhand_bbox):
-        rjoint_img, ljoint_img, rhand_bbox, lhand_bbox = rjoint_img.clone(), ljoint_img.clone(), rhand_bbox.clone(), lhand_bbox.clone()
-
-        # change hand output joint_img according to hand bbox (cfg.output_hand_hm_shape -> cfg.input_body_shape)
-        for coord, bbox in ((ljoint_img, lhand_bbox), (rjoint_img, rhand_bbox)):
-            coord[:,:,0] *= ((bbox[:,None,2] - bbox[:,None,0]) / cfg.output_hand_hm_shape[2])
-            coord[:,:,0] += bbox[:,None,0]
-            coord[:,:,1] *= ((bbox[:,None,3] - bbox[:,None,1]) / cfg.output_hand_hm_shape[1])
-            coord[:,:,1] += bbox[:,None,1]
+    def crop_and_resize(self, coord, bbox):
+        batch_size = bbox.shape[0]
+        transl = torch.FloatTensor([cfg.input_hm_shape[2]/2, cfg.input_hm_shape[1]/2]).cuda()[None,:] - (bbox[:,:2] + bbox[:,2:])/2
+        center = (bbox[:,:2] + bbox[:,2:])/2
+        scale = torch.stack([cfg.input_hm_shape[2]/(bbox[:,2]-bbox[:,0]), cfg.input_hm_shape[1]/(bbox[:,3]-bbox[:,1])],1)
+        angle = torch.zeros((batch_size)).float().cuda()
+        orig2hm_trans = kornia.geometry.transform.get_affine_matrix2d(transl, center, scale, angle)[:,:2,:]
         
+        xy1 = torch.stack((coord[:,:,0], coord[:,:,1], torch.ones_like(coord[:,:,0])),2)
+        xy = torch.bmm(orig2hm_trans, xy1.permute(0,2,1)).permute(0,2,1)
+        coord = torch.cat((xy, coord[:,:,2:]),2)
+        return coord
+    
+    def forward(self, rjoint_img, ljoint_img, rhand_hand2orig_trans, lhand_hand2orig_trans):
+        rjoint_img, ljoint_img = rjoint_img.clone(), ljoint_img.clone()
+
+        # cfg.output_hand_hm_shape -> cfg.input_img_shape
+        for coord, trans in ((ljoint_img, lhand_hand2orig_trans), (rjoint_img, rhand_hand2orig_trans)):
+            x, y = coord[:,:,0], coord[:,:,1]
+            x = x / cfg.output_hand_hm_shape[2] * cfg.input_hand_shape[1]
+            y = y / cfg.output_hand_hm_shape[1] * cfg.input_hand_shape[0]
+            xy1 = torch.stack((x,y,torch.ones_like(x)),2)
+            xy = torch.bmm(trans, xy1.permute(0,2,1)).permute(0,2,1)
+            coord[:,:,0] = xy[:,:,0]
+            coord[:,:,1] = xy[:,:,1]
+
         # compute tight hand bboxes from joint_img
         rhand_bbox = self.get_bbox(rjoint_img) # xmin, ymin, xmax, ymax in cfg.input_body_shape
         lhand_bbox = self.get_bbox(ljoint_img) # xmin, ymin, xmax, ymax in cfg.input_body_shape
@@ -135,15 +165,13 @@ class TransNet(nn.Module):
         ymax = torch.maximum(lhand_bbox[:,3], rhand_bbox[:,3])
         hand_bbox_union = torch.stack((xmin, ymin, xmax, ymax),1)
         hand_bbox_union = self.set_aspect_ratio(hand_bbox_union)
-        
-        # change hand target joint_img according to hand bbox (cfg.input_body_shape -> cfg.input_hm_shape)
-        for coord in (rjoint_img, ljoint_img):
-            coord[:,:,0] -= hand_bbox_union[:,None,0]
-            coord[:,:,0] *= (cfg.input_hm_shape[2] / (hand_bbox_union[:,None,2] - hand_bbox_union[:,None,0]))
-            coord[:,:,1] -= hand_bbox_union[:,None,1]
-            coord[:,:,1] *= (cfg.input_hm_shape[1] / (hand_bbox_union[:,None,3] - hand_bbox_union[:,None,1]))
-            coord[:,:,2] *= cfg.input_hm_shape[0] / cfg.output_hand_hm_shape[0]
- 
+
+        # cfg.input_img_shape -> cfg.input_hm_shape
+        rjoint_img = self.crop_and_resize(rjoint_img, hand_bbox_union)
+        ljoint_img = self.crop_and_resize(ljoint_img, hand_bbox_union)
+        rjoint_img[:,:,2] = rjoint_img[:,:,2] / cfg.output_hand_hm_shape[0] * cfg.input_hm_shape[0]
+        ljoint_img[:,:,2] = ljoint_img[:,:,2] / cfg.output_hand_hm_shape[0] * cfg.input_hm_shape[0]
+
         # hand heatmap
         rhand_hm = self.render_gaussian_heatmap(rjoint_img)
         rhand_hm = rhand_hm.view(-1,self.joint_num*cfg.input_hm_shape[0],cfg.input_hm_shape[1],cfg.input_hm_shape[2]) 
@@ -165,8 +193,8 @@ class BoxNet(nn.Module):
         super(BoxNet, self).__init__()
         self.deconv = make_deconv_layers([2048,256,256,256])
         self.bbox_center = make_conv_layers([256,2], kernel=1, stride=1, padding=0, bnrelu_final=False)
-        self.lhand_size = make_linear_layers([256,256,2], relu_final=False)
         self.rhand_size = make_linear_layers([256,256,2], relu_final=False)
+        self.lhand_size = make_linear_layers([256,256,2], relu_final=False)
        
     def forward(self, img_feat):
         img_feat = self.deconv(img_feat)
@@ -174,40 +202,49 @@ class BoxNet(nn.Module):
         # bbox center
         bbox_center_hm = self.bbox_center(img_feat)
         bbox_center = soft_argmax_2d(bbox_center_hm)
-        lhand_center, rhand_center = bbox_center[:,0,:], bbox_center[:,1,:]
+        rhand_center, lhand_center = bbox_center[:,0,:], bbox_center[:,1,:]
         
         # bbox size
-        lhand_feat = sample_joint_features(img_feat, lhand_center.detach()[:,None,:])[:,0,:]
-        lhand_size = self.lhand_size(lhand_feat)
         rhand_feat = sample_joint_features(img_feat, rhand_center.detach()[:,None,:])[:,0,:]
         rhand_size = self.rhand_size(rhand_feat)
-        return lhand_center, lhand_size, rhand_center, rhand_size
+        lhand_feat = sample_joint_features(img_feat, lhand_center.detach()[:,None,:])[:,0,:]
+        lhand_size = self.lhand_size(lhand_feat)
+        return rhand_center, rhand_size, lhand_center, lhand_size
 
 class HandRoI(nn.Module):
     def __init__(self, backbone):
         super(HandRoI, self).__init__()
         self.backbone = backbone
-                                           
-    def forward(self, img, lhand_bbox, rhand_bbox):
-        # left hand image crop and resize
-        lhand_bbox = torch.cat((torch.arange(lhand_bbox.shape[0]).float().cuda()[:,None], lhand_bbox),1) # batch_idx, xmin, ymin, xmax, ymax
-        lhand_bbox_roi = lhand_bbox.clone()
-        lhand_bbox_roi[:,1] = lhand_bbox_roi[:,1] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
-        lhand_bbox_roi[:,2] = lhand_bbox_roi[:,2] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
-        lhand_bbox_roi[:,3] = lhand_bbox_roi[:,3] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
-        lhand_bbox_roi[:,4] = lhand_bbox_roi[:,4] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
-        lhand_img = torchvision.ops.roi_align(img, lhand_bbox_roi, cfg.input_hand_shape, aligned=False) 
-        lhand_img = torch.flip(lhand_img, [3]) # flip to the right hand
+    
+    def crop_and_resize(self, img, bbox):
+        batch_size = bbox.shape[0]
+        bbox = bbox.clone() # xmin, ymin, xmax, ymax in cfg.input_body_shape space
+        bbox[:,0] = bbox[:,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
+        bbox[:,1] = bbox[:,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
+        bbox[:,2] = bbox[:,2] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
+        bbox[:,3] = bbox[:,3] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
+        
+        transl = torch.FloatTensor([cfg.input_hand_shape[1]/2, cfg.input_hand_shape[0]/2]).cuda()[None,:] - (bbox[:,:2] + bbox[:,2:])/2
+        center = (bbox[:,:2] + bbox[:,2:])/2
+        scale = torch.stack([cfg.input_hand_shape[1]/(bbox[:,2]-bbox[:,0]), cfg.input_hand_shape[0]/(bbox[:,3]-bbox[:,1])],1)
+        angle = torch.zeros((batch_size)).float().cuda()
+        orig2hand_trans = kornia.geometry.transform.get_affine_matrix2d(transl, center, scale, angle)
+        hand2orig_trans = torch.inverse(orig2hand_trans)[:,:2,:]
+        orig2hand_trans = orig2hand_trans[:,:2,:]
 
-        # right hand image crop and resize
-        rhand_bbox = torch.cat((torch.arange(rhand_bbox.shape[0]).float().cuda()[:,None], rhand_bbox),1) # batch_idx, xmin, ymin, xmax, ymax
-        rhand_bbox_roi = rhand_bbox.clone()
-        rhand_bbox_roi[:,1] = rhand_bbox_roi[:,1] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
-        rhand_bbox_roi[:,2] = rhand_bbox_roi[:,2] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
-        rhand_bbox_roi[:,3] = rhand_bbox_roi[:,3] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
-        rhand_bbox_roi[:,4] = rhand_bbox_roi[:,4] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
-        rhand_img = torchvision.ops.roi_align(img, rhand_bbox_roi, cfg.input_hand_shape, aligned=False) 
+        img = kornia.geometry.transform.warp_affine(img, orig2hand_trans, cfg.input_hand_shape)
+        return img, orig2hand_trans, hand2orig_trans
 
-        hand_img = torch.cat((lhand_img, rhand_img))
+    def forward(self, img, rhand_bbox, lhand_bbox):
+        # cfg.input_img_shape -> cfg.input_hand_shape
+        with torch.no_grad():
+            rhand_img, rhand_orig2hand_trans, rhand_hand2orig_trans = self.crop_and_resize(img, rhand_bbox)
+            lhand_img, lhand_orig2hand_trans, lhand_hand2orig_trans = self.crop_and_resize(img, lhand_bbox)
+            lhand_img = torch.flip(lhand_img, [3]) # flip to the right hand
+
+        hand_img = torch.cat((rhand_img, lhand_img))
         hand_feat = self.backbone(hand_img)
-        return hand_feat
+        orig2hand_trans = torch.cat((rhand_orig2hand_trans, lhand_orig2hand_trans))
+        hand2orig_trans = torch.cat((rhand_hand2orig_trans, lhand_hand2orig_trans))
+        return hand_feat, orig2hand_trans, hand2orig_trans
+

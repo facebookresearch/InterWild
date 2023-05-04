@@ -26,7 +26,7 @@ from config import cfg
 from model import get_model
 from utils.preprocessing import load_img, process_bbox, generate_patch_image, get_iou
 from utils.vis import save_obj, render_mesh_orthogonal
-from utils.human_models import mano
+from utils.mano import mano
 
 def parse_args():
     parser = argparse.ArgumentParser()

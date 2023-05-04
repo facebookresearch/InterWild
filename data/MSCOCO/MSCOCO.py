@@ -14,11 +14,10 @@ import json
 import cv2
 import torch
 from pycocotools.coco import COCO
-from utils.human_models import mano
-from utils.preprocessing import load_img, sanitize_bbox, process_bbox, augmentation, process_db_coord, process_human_model_output, get_iou, generate_patch_image
+from utils.mano import mano
+from utils.preprocessing import load_img, sanitize_bbox, process_bbox, augmentation, process_db_coord, process_human_model_output, get_iou
 from utils.transforms import transform_joint_to_other_db
-from utils.vis import vis_keypoints, vis_mesh, save_obj
-import random
+from utils.vis import vis_keypoints, save_obj
 
 class MSCOCO(torch.utils.data.Dataset):
     def __init__(self, transform, data_split):
@@ -174,7 +173,7 @@ class MSCOCO(torch.utils.data.Dataset):
                 mano_param['right']['mano_param']['hand_type'] = 'right'
                 rmano_joint_img, rmano_joint_cam, rmano_joint_trunc, rmano_pose, rmano_shape, rmano_mesh_cam = process_human_model_output(mano_param['right']['mano_param'], mano_param['right']['cam_param'], do_flip, img_shape, img2bb_trans, rot)
                 rmano_joint_valid = np.ones((mano.sh_joint_num,1), dtype=np.float32)
-                rmano_pose_valid = np.ones((mano.orig_joint_num*3), dtype=np.float32)
+                rmano_pose_valid = np.ones((mano.orig_joint_num), dtype=np.float32)
                 rmano_shape_valid = np.ones((mano.shape_param_dim), dtype=np.float32)
             else:
                 # dummy values
@@ -184,7 +183,7 @@ class MSCOCO(torch.utils.data.Dataset):
                 rmano_pose = np.zeros((mano.orig_joint_num*3), dtype=np.float32) 
                 rmano_shape = np.zeros((mano.shape_param_dim), dtype=np.float32)
                 rmano_joint_valid = np.zeros((mano.sh_joint_num,1), dtype=np.float32)
-                rmano_pose_valid = np.zeros((mano.orig_joint_num*3), dtype=np.float32)
+                rmano_pose_valid = np.zeros((mano.orig_joint_num), dtype=np.float32)
                 rmano_shape_valid = np.zeros((mano.shape_param_dim), dtype=np.float32)
                 rmano_mesh_cam = np.zeros((mano.vertex_num,3), dtype=np.float32)
 
@@ -193,7 +192,7 @@ class MSCOCO(torch.utils.data.Dataset):
                 mano_param['left']['mano_param']['hand_type'] = 'left'
                 lmano_joint_img, lmano_joint_cam, lmano_joint_trunc, lmano_pose, lmano_shape, lmano_mesh_cam = process_human_model_output(mano_param['left']['mano_param'], mano_param['left']['cam_param'], do_flip, img_shape, img2bb_trans, rot)
                 lmano_joint_valid = np.ones((mano.sh_joint_num,1), dtype=np.float32)
-                lmano_pose_valid = np.ones((mano.orig_joint_num*3), dtype=np.float32)
+                lmano_pose_valid = np.ones((mano.orig_joint_num), dtype=np.float32)
                 lmano_shape_valid = np.ones((mano.shape_param_dim), dtype=np.float32)
             else:
                 # dummy values
@@ -203,7 +202,7 @@ class MSCOCO(torch.utils.data.Dataset):
                 lmano_pose = np.zeros((mano.orig_joint_num*3), dtype=np.float32) 
                 lmano_shape = np.zeros((mano.shape_param_dim), dtype=np.float32)
                 lmano_joint_valid = np.zeros((mano.sh_joint_num,1), dtype=np.float32)
-                lmano_pose_valid = np.zeros((mano.orig_joint_num*3), dtype=np.float32)
+                lmano_pose_valid = np.zeros((mano.orig_joint_num), dtype=np.float32)
                 lmano_shape_valid = np.zeros((mano.shape_param_dim), dtype=np.float32)
                 lmano_mesh_cam = np.zeros((mano.vertex_num,3), dtype=np.float32)
 

@@ -17,10 +17,9 @@ import random
 from glob import glob
 from pycocotools.coco import COCO
 from config import cfg
-from utils.human_models import mano
+from utils.mano import mano
 from utils.preprocessing import load_img, get_bbox, process_bbox, augmentation, process_db_coord, process_human_model_output, get_iou, load_ply
-from utils.transforms import rigid_transform_3D
-from utils.vis import vis_keypoints, vis_mesh, save_obj
+from utils.vis import vis_keypoints, save_obj
 
 class HIC(torch.utils.data.Dataset):
     def __init__(self, transform, data_split):

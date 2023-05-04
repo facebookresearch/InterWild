@@ -7,31 +7,32 @@
 
 import torch
 import torch.nn as nn
-from config import cfg
+from pytorch3d.transforms import axis_angle_to_matrix
 
 class CoordLoss(nn.Module):
     def __init__(self):
         super(CoordLoss, self).__init__()
 
-    def forward(self, coord_out, coord_gt, valid, is_3D=None):
+    def forward(self, coord_out, coord_gt, valid, is_3D):
         loss = torch.abs(coord_out - coord_gt) * valid
-        if is_3D is not None:
-            loss_z = loss[:,:,2:] * is_3D[:,None,None].float()
-            loss = torch.cat((loss[:,:,:2], loss_z),2)
-
-        # prevent NaN loss
-        loss[torch.isnan(loss)] = 0
+        loss_z = loss[:,:,2:] * is_3D[:,None,None].float()
+        loss = torch.cat((loss[:,:,:2], loss_z),2)
         return loss
 
-class ParamLoss(nn.Module):
+class PoseLoss(nn.Module):
     def __init__(self):
-        super(ParamLoss, self).__init__()
+        super(PoseLoss, self).__init__()
 
-    def forward(self, param_out, param_gt, valid):
-        loss = torch.abs(param_out - param_gt) * valid
+    def forward(self, pose_out, pose_gt, pose_valid):
+        batch_size = pose_out.shape[0]
 
-        # prevent NaN loss
-        loss[torch.isnan(loss)] = 0
+        pose_out = pose_out.view(batch_size,-1,3)
+        pose_gt = pose_gt.view(batch_size,-1,3)
+
+        pose_out = axis_angle_to_matrix(pose_out)
+        pose_gt = axis_angle_to_matrix(pose_gt)
+
+        loss = torch.abs(pose_out - pose_gt) * pose_valid[:,:,None,None]
         return loss
 
 

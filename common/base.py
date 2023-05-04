@@ -63,7 +63,7 @@ class Trainer(Base):
         return optimizer
 
     def save_model(self, state, epoch):
-        file_path = osp.join(cfg.model_dir,'snapshot_{}.pth.tar'.format(str(epoch)))
+        file_path = osp.join(cfg.model_dir,'snapshot_{}.pth'.format(str(epoch)))
 
         # do not save mano layer weights
         dump_key = []
@@ -77,9 +77,9 @@ class Trainer(Base):
         self.logger.info("Write snapshot into {}".format(file_path))
 
     def load_model(self, model, optimizer):
-        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth.tar'))
-        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth.tar')]) for file_name in model_file_list])
-        ckpt_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth.tar')
+        model_file_list = glob.glob(osp.join(cfg.model_dir,'*.pth'))
+        cur_epoch = max([int(file_name[file_name.find('snapshot_') + 9 : file_name.find('.pth')]) for file_name in model_file_list])
+        ckpt_path = osp.join(cfg.model_dir, 'snapshot_' + str(cur_epoch) + '.pth')
         ckpt = torch.load(ckpt_path) 
         start_epoch = ckpt['epoch'] + 1
         model.load_state_dict(ckpt['network'], strict=False)
@@ -166,7 +166,7 @@ class Tester(Base):
         self.batch_generator = batch_generator
 
     def _make_model(self):
-        model_path = os.path.join(cfg.model_dir, 'snapshot_%d.pth.tar' % self.test_epoch)
+        model_path = os.path.join(cfg.model_dir, 'snapshot_%d.pth' % self.test_epoch)
         assert os.path.exists(model_path), 'Cannot find model at ' + model_path
         self.logger.info('Load checkpoint from {}'.format(model_path))
         
