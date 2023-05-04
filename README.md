@@ -8,13 +8,12 @@ This repo is official **[PyTorch](https://pytorch.org)** implementation of **[Br
 </p>
 
 ## Demo
-1. Slightly change `torchgeometry` kernel code following [here](https://github.com/mks0601/I2L-MeshNet_RELEASE/issues/6#issuecomment-675152527).
-2. Prepare `human_model_files` folder following below `Directory` part and place it at `common/utils/human_model_files`.
-3. Move to `demo` folder.
-4. Download pre-trained InterWild from [here](https://drive.google.com/file/d/1W4TC5MAqciG5qN79wtKBGL8mGgqrfEvP/view?usp=share_link).
-5. Put input images at `images`. The image should be a cropped image, which contain a single human. For example, using a human detector.
-6. Run `python demo.py --gpu $GPU_ID`
-7. Boxes, meshes, and MANO parameters are saved at `boxes`, `meshes`, `params`, respectively.
+1. Prepare `human_model_files` folder following below `Directory` part and place it at `common/utils/human_model_files`.
+2. Move to `demo` folder.
+3. Download pre-trained InterWild from [here](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link).
+4. Put input images at `images`. The image should be a cropped image, which contain a single human. For example, using a human detector.
+5. Run `python demo.py --gpu $GPU_ID`
+6. Boxes, meshes, and MANO parameters are saved at `boxes`, `meshes`, `params`, respectively.
 
 ## Directory
 
@@ -79,9 +78,6 @@ ${ROOT}
 
 ## Running InterWild
 ### Start
-* As InterHand2.6M is too large, I only use data whose `ann_id` belong to the `H` subset, while values belong to the `H+M` subset.
-* To this end, please download `aid_human_annot_train.txt` and `aid_human_annot_test.txt` from [here](https://drive.google.com/file/d/1Tz6P2pyc55L5ZcGx1W85v5hAnB-MZ8ok/view?usp=share_link) and [here](https://drive.google.com/file/d/1NBGADofWE76ksA2S1bXy-kZSW6w0UIyF/view?usp=share_link), respectively, and place them in `main` folder.
-* Slightly change `torchgeometry` kernel code following [here](https://github.com/mks0601/I2L-MeshNet_RELEASE/issues/6#issuecomment-675152527).
 * Prepare `human_model_files` folder following above `Directory` part and place it at `common/utils/human_model_files`.
 
 ### Train
@@ -93,14 +89,14 @@ to train the network on the GPU 0,1,2,3. `--gpu 0,1,2,3` can be used instead of 
 
 
 ### Test
-* If you want to test with pre-trained InterWild, download it from [here](https://drive.google.com/file/d/1W4TC5MAqciG5qN79wtKBGL8mGgqrfEvP/view?usp=share_link) and place it at `output/model_dump'.
+* If you want to test with pre-trained InterWild, download it from [here](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link) and place it at `output/model_dump'.
 * Or if you want to test with our own trained model, place your model at `output/model_dump`.
 
 In the `main` folder, run 
 ```bash
 python test.py --gpu 0-3 --test_epoch 6
 ```
-to test the network on the GPU 0,1,2,3 with `snapshot_6.pth.tar`.  `--gpu 0,1,2,3` can be used instead of `--gpu 0-3`. 
+to test the network on the GPU 0,1,2,3 with `snapshot_6.pth`.  `--gpu 0,1,2,3` can be used instead of `--gpu 0-3`. 
 
 ## Reference  
 ```  
