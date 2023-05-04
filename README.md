@@ -13,7 +13,7 @@ This repo is official **[PyTorch](https://pytorch.org)** implementation of **[Br
 3. Download pre-trained InterWild from [here](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link).
 4. Put input images at `images`. The image should be a cropped image, which contain a single human. For example, using a human detector.
 5. Run `python demo.py --gpu $GPU_ID`
-6. Boxes, meshes, and MANO parameters are saved at `boxes`, `meshes`, `params`, respectively.
+6. Boxes, meshes, MANO parameters, and renderings are saved at `boxes`, `meshes`, `params`, and `renders`, respectively.
 
 ## Directory
 
