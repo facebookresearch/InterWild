@@ -48,7 +48,7 @@ cfg.set_args(args.gpu_ids)
 cudnn.benchmark = True
 
 # snapshot load
-model_path = './snapshot_6.pth.tar'
+model_path = './snapshot_6.pth'
 assert osp.exists(model_path), 'Cannot find model at ' + model_path
 print('Load checkpoint from {}'.format(model_path))
 model = get_model('test')
