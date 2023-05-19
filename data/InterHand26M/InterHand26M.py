@@ -49,8 +49,15 @@ class InterHand26M(torch.utils.data.Dataset):
         with open(osp.join(self.annot_path, self.data_split, 'InterHand2.6M_' + self.data_split + '_MANO_NeuralAnnot.json')) as f:
             mano_params = json.load(f)
         
+        if self.data_split == 'train':
+            aid_list = db.anns.keys()
+        else:
+            with open(osp.join('..', 'data', 'InterHand26M', 'aid_human_annot_test.txt')) as f:
+                aid_list = f.readlines()
+                aid_list = [int(x) for x in aid_list]
+                
         datalist = []
-        for aid in db.anns.keys():
+        for aid in aid_list:
             ann = db.anns[aid]
             image_id = ann['image_id']
             img = db.loadImgs(image_id)[0]
