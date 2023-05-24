@@ -155,8 +155,8 @@ class TransNet(nn.Module):
             coord[:,:,1] = xy[:,:,1]
 
         # compute tight hand bboxes from joint_img
-        rhand_bbox = self.get_bbox(rjoint_img) # xmin, ymin, xmax, ymax in cfg.input_body_shape
-        lhand_bbox = self.get_bbox(ljoint_img) # xmin, ymin, xmax, ymax in cfg.input_body_shape
+        rhand_bbox = self.get_bbox(rjoint_img) # xmin, ymin, xmax, ymax in cfg.input_img_shape
+        lhand_bbox = self.get_bbox(ljoint_img) # xmin, ymin, xmax, ymax in cfg.input_img_shape
 
         # bbox union
         xmin = torch.minimum(lhand_bbox[:,0], rhand_bbox[:,0])
