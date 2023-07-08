@@ -25,7 +25,7 @@ sys.path.insert(0, osp.join('..', 'common'))
 from config import cfg
 from model import get_model
 from utils.preprocessing import load_img, process_bbox, generate_patch_image, get_iou
-from utils.vis import save_obj, render_mesh_orthogonal
+from utils.vis import vis_keypoints_with_skeleton, save_obj, render_mesh_orthogonal
 from utils.mano import mano
 
 def parse_args():
@@ -59,11 +59,9 @@ model.eval()
 
 # prepare save paths
 input_img_path = './images'
-box_save_path = './boxes'
 mesh_save_path = './meshes'
 param_save_path = './params'
 render_save_path = './renders'
-os.makedirs(box_save_path, exist_ok=True)
 os.makedirs(mesh_save_path, exist_ok=True)
 os.makedirs(param_save_path, exist_ok=True)
 os.makedirs(render_save_path, exist_ok=True)
@@ -102,6 +100,8 @@ for img_path in tqdm(img_path_list):
         is_th = False
 
     # for each right and left hand
+    vis_box = original_img.copy()[:,:,::-1]
+    vis_skeleton = original_img.copy()[:,:,::-1]
     prev_depth = None
     render_out = torch.flip(torch.from_numpy(original_img).float().cuda()[None,:,:,:], [3]) # batch_size, img_height, img_width, 3
     rroot_cam = out['rroot_cam'].cpu().numpy()[0] # 3D position of the right hand root joint (wrist)
@@ -109,6 +109,7 @@ for img_path in tqdm(img_path_list):
     for h in ('right', 'left'):
         # get outputs
         hand_bbox = out[h[0] + 'hand_bbox'].cpu().numpy()[0].reshape(2,2) # xyxy
+        joint_img = out[h[0] + 'joint_img'].cpu().numpy()[0] # 2.5D pose
         mesh = out[h[0] + 'mano_mesh_cam'].cpu().numpy()[0] # root-relative mesh
         root_pose = out[h[0] + 'mano_root_pose'].cpu().numpy()[0] # MANO root pose
         hand_pose = out[h[0] + 'mano_hand_pose'].cpu().numpy()[0] # MANO hand pose
@@ -139,8 +140,20 @@ for img_path in tqdm(img_path_list):
         hand_bbox[:,1] = hand_bbox[:,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
         hand_bbox_xy1 = np.concatenate((hand_bbox, np.ones_like(hand_bbox[:,:1])),1)
         hand_bbox = np.dot(bb2img_trans, hand_bbox_xy1.transpose(1,0)).transpose(1,0)
-        with open(osp.join(box_save_path, file_name + '_' + h + '.json'), 'w') as f:
-            json.dump(hand_bbox.tolist(), f)
+        if h == 'right':
+            color = (255,0,255) # purple
+        else:
+            color = (102,255,102) # green
+        vis_box = cv2.rectangle(vis_box.copy(), (int(hand_bbox[0,0]), int(hand_bbox[0,1])), (int(hand_bbox[1,0]), int(hand_bbox[1,1])), color, 3)
+
+        # 2D skeleton
+        joint_img_xy1 = np.concatenate((joint_img[:,:2], np.ones_like(joint_img[:,:1])),1)
+        joint_img = np.dot(bb2img_trans, joint_img_xy1.transpose(1,0)).transpose(1,0)
+        if h == 'right':
+            color = (255,0,255) # purple
+        else:
+            color = (102,255,102) # green
+        vis_skeleton = vis_keypoints_with_skeleton(vis_skeleton, joint_img, mano.sh_skeleton, color)
 
         # save mesh
         save_obj(mesh, mano.face[h], osp.join(mesh_save_path, file_name + '_' + h + '.obj'))
@@ -167,7 +180,13 @@ for img_path in tqdm(img_path_list):
             render_mask = (valid_mask * (((depth < prev_depth) + (prev_depth <= 0)) > 0)).float()
             render_out = rgb * render_mask + render_out * (1 - render_mask)
             prev_depth = depth * render_mask + prev_depth * (1 - render_mask)
-    
+ 
+    # save box
+    cv2.imwrite(osp.join(render_save_path, file_name + '_box.jpg'), vis_box)
+
+    # save 2D skeleton
+    cv2.imwrite(osp.join(render_save_path, file_name + '_skeleton.jpg'), vis_skeleton)
+   
     # save render
-    cv2.imwrite(osp.join(render_save_path, file_name + '.jpg'), render_out[0].cpu().numpy())
+    cv2.imwrite(osp.join(render_save_path, file_name + '_mesh.jpg'), render_out[0].cpu().numpy())
 

@@ -26,11 +26,9 @@ MeshRendererWithFragments,
 MeshRasterizer,
 TexturesVertex)
 
-def vis_keypoints_with_skeleton(img, kps, kps_lines):
-    # Convert from plt 0-1 RGBA colors to 0-255 BGR colors for opencv.
-    cmap = plt.get_cmap('rainbow')
-    colors = [cmap(i) for i in np.linspace(0, 1, len(kps_lines) + 2)]
-    colors = [(c[2] * 255, c[1] * 255, c[0] * 255) for c in colors]
+def vis_keypoints_with_skeleton(img, kps, kps_lines, color):
+    skeleton_num = len(kps_lines) 
+    colors = [color for _ in range(skeleton_num)] 
 
     # Perform the drawing on a copy of the image, to allow for blending.
     kp_mask = np.copy(img)
