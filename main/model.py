@@ -62,7 +62,7 @@ class Model(nn.Module):
         # body network
         body_img = F.interpolate(inputs['img'], cfg.input_body_shape, mode='bilinear')
         body_feat = self.body_backbone(body_img)
-        rhand_bbox_center, rhand_bbox_size, lhand_bbox_center, lhand_bbox_size = self.body_box_net(body_feat)
+        rhand_bbox_center, rhand_bbox_size, lhand_bbox_center, lhand_bbox_size, rhand_bbox_conf, lhand_bbox_conf = self.body_box_net(body_feat)
         rhand_bbox = restore_bbox(rhand_bbox_center, rhand_bbox_size, cfg.input_hand_shape[1]/cfg.input_hand_shape[0], 2.0).detach() # xyxy in (cfg.input_body_shape[1], cfg.input_body_shape[0]) space
         lhand_bbox = restore_bbox(lhand_bbox_center, lhand_bbox_size, cfg.input_hand_shape[1]/cfg.input_hand_shape[0], 2.0).detach() # xyxy in (cfg.input_body_shape[1], cfg.input_body_shape[0]) space
         hand_feat, orig2hand_trans, hand2orig_trans = self.hand_roi_net(inputs['img'], rhand_bbox, lhand_bbox) # (2N, ...). right hand + flipped left hand
@@ -214,6 +214,8 @@ class Model(nn.Module):
             out['rel_trans'] = rel_trans
             out['rhand_bbox'] = restore_bbox(rhand_bbox_center, rhand_bbox_size, None, 1.0)
             out['lhand_bbox'] = restore_bbox(lhand_bbox_center, lhand_bbox_size, None, 1.0)
+            out['rhand_bbox_conf'] = rhand_bbox_conf
+            out['lhand_bbox_conf'] = lhand_bbox_conf
             out['rjoint_img'] = joint_img[:,mano.th_joint_type['right'],:]
             out['ljoint_img'] = joint_img[:,mano.th_joint_type['left'],:]
             out['rmano_mesh_cam'] = rmesh_cam

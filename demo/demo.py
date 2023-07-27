@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument('--gpu', type=str, dest='gpu_ids')
     args = parser.parse_args()
 
-    assert args.gpu_ids, print("Please set proper gpu ids")
+    assert args.gpu_ids, "Please set proper gpu ids"
 
     if '-' in args.gpu_ids:
         gpus = args.gpu_ids.split('-')
@@ -109,13 +109,14 @@ for img_path in tqdm(img_path_list):
     for h in ('right', 'left'):
         # get outputs
         hand_bbox = out[h[0] + 'hand_bbox'].cpu().numpy()[0].reshape(2,2) # xyxy
+        hand_bbox_conf = float(out[h[0] + 'hand_bbox_conf'].cpu().numpy()[0]) # bbox confidence
         joint_img = out[h[0] + 'joint_img'].cpu().numpy()[0] # 2.5D pose
         mesh = out[h[0] + 'mano_mesh_cam'].cpu().numpy()[0] # root-relative mesh
         root_pose = out[h[0] + 'mano_root_pose'].cpu().numpy()[0] # MANO root pose
         hand_pose = out[h[0] + 'mano_hand_pose'].cpu().numpy()[0] # MANO hand pose
         shape = out[h[0] + 'mano_shape'].cpu().numpy()[0] # MANO shape parameter
         root_cam = out[h[0] + 'root_cam'].cpu().numpy()[0] # 3D position of the root joint (wrist)
-
+        
         # use rel_trans only when two-hand cases
         if is_th:
             if h == 'right':
