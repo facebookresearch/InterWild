@@ -15,7 +15,7 @@ class Config:
     ## dataset
     trainset_3d = ['InterHand26M'] 
     trainset_2d = ['MSCOCO']
-    testset = 'HIC' # InterHand26M, HIC, MSCOCO
+    testset = 'InterHand26M' # InterHand26M, HIC, MSCOCO
 
     ## model setting
     body_resnet_type = 50
@@ -40,10 +40,10 @@ class Config:
     lr_dec_factor = 10
     lr_dec_epoch = [4]
     end_epoch = 7
-    train_batch_size = 128
+    train_batch_size = 64
 
     ## testing config
-    test_batch_size = 128
+    test_batch_size = 64
 
     ## others
     num_thread = 16

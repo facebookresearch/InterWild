@@ -23,7 +23,7 @@ class Model(nn.Module):
         self.body_box_net = body_box_net
 
         self.hand_roi_net = hand_roi_net
-        self.hand_position_net = hand_position_net
+        self.hand_position_net = hand_position_net 
         self.hand_rotation_net = hand_rotation_net
         self.hand_trans_net = hand_trans_net
         
