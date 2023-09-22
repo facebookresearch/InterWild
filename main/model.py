@@ -27,7 +27,8 @@ class Model(nn.Module):
         self.hand_rotation_net = hand_rotation_net
         self.hand_trans_net = hand_trans_net
         
-        self.mano_layer = {k: copy.deepcopy(v).cuda() for k,v in mano.layer.items()} # k: 'right' and 'left'
+        self.mano_layer_right = copy.deepcopy(mano.layer['right']).cuda()
+        self.mano_layer_left = copy.deepcopy(mano.layer['left']).cuda()
         self.coord_loss = CoordLoss()
         self.pose_loss = PoseLoss()
  
@@ -36,7 +37,10 @@ class Model(nn.Module):
     def get_coord(self, root_pose, hand_pose, shape, root_trans, hand_type):
         batch_size = root_pose.shape[0]
         zero_trans = torch.zeros((batch_size,3)).float().cuda()
-        output = self.mano_layer[hand_type](betas=shape, hand_pose=hand_pose, global_orient=root_pose, transl=zero_trans)
+        if hand_type == 'right':
+            output = self.mano_layer_right(betas=shape, hand_pose=hand_pose, global_orient=root_pose, transl=zero_trans)
+        elif hand_type == 'left':
+            output = self.mano_layer_left(betas=shape, hand_pose=hand_pose, global_orient=root_pose, transl=zero_trans)
 
         # camera-centered 3D coordinate
         mesh_cam = output.vertices
