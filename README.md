@@ -104,15 +104,14 @@ python test.py --gpu 0-3 --test_epoch 6
 to test the network on the GPU 0,1,2,3 with `snapshot_6.pth`.  `--gpu 0,1,2,3` can be used instead of `--gpu 0-3`. 
 
 <p align="middle">
-<img src="assets/IH26M.png" width="305" height="160">
-  The test results on InterHand2.6M test (H).
+<img src="assets/IH26M.png" width="600" height="320">
 </p>
-
+The test results on InterHand2.6M test (H).
+  
 <p align="middle">
-<img src="assets/HIC.png" width="890" height="160">  
-  The test results on HIC.
+<img src="assets/HIC.png" width="600" height="100">  
 </p>
-
+The test results on HIC.
 
 ## Reference  
 ```  
