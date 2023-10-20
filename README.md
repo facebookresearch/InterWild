@@ -95,7 +95,7 @@ to train the network on the GPU 0,1,2,3. `--gpu 0,1,2,3` can be used instead of 
 ### Test
 * If you want to test with pre-trained InterWild, download it from [here](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link) and place it at `output/model_dump'.
 * Or if you want to test with our own trained model, place your model at `output/model_dump`.
-* For the evaluation on InterHand2.6M dataset, please download [aid_human_annot_test.txt](https://drive.google.com/file/d/1NBGADofWE76ksA2S1bXy-kZSW6w0UIyF/view?usp=share_link) and place it in `data/InterHand26M` folder. We evaluated all methods on `human_annot` subset of InterHand2.6M dataset.
+* For the evaluation on InterHand2.6M dataset, we evaluated all methods in the paper on `human_annot` subset of interHand2.6M using `data/InterHand26M/aid_human_annot_test.txt`.
 
 In the `main` folder, run 
 ```bash
