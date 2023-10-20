@@ -93,7 +93,7 @@ to train the network on the GPU 0,1,2,3. `--gpu 0,1,2,3` can be used instead of 
 
 
 ### Test
-* If you want to test with pre-trained InterWild, download it from [here](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link) and place it at `output/model_dump'.
+* If you want to test with pre-trained InterWild, download it from [here](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link) and place it at `output/model_dump'. This checkpoint is trained on IH2.6M (H+M) + MSCOCO, while that of the paper is trained on IH2.6M (H) + MSCOCO.
 * Or if you want to test with our own trained model, place your model at `output/model_dump`.
 * For the evaluation on InterHand2.6M dataset, we evaluated all methods in the paper on `human_annot` subset of interHand2.6M using `data/InterHand26M/aid_human_annot_test.txt`.
 
