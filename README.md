@@ -106,12 +106,18 @@ to test the network on the GPU 0,1,2,3 with `snapshot_6.pth`.  `--gpu 0,1,2,3` c
 <p align="middle">
 <img src="assets/IH26M.png" width="600" height="320">
 </p>
+<p align="center">
 The test results on InterHand2.6M test (H).
+</p>
+
   
 <p align="middle">
 <img src="assets/HIC.png" width="600" height="100">  
 </p>
+<p align="center">
 The test results on HIC.
+</p>
+
 
 ## Reference  
 ```  
