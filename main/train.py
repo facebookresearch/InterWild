@@ -20,7 +20,7 @@ def parse_args():
 
     if not args.gpu_ids:
         assert 0, "Please set propoer gpu ids"
- 
+
     if '-' in args.gpu_ids:
         gpus = args.gpu_ids.split('-')
         gpus[0] = int(gpus[0])
@@ -49,6 +49,8 @@ def main():
         for itr, (inputs, targets, meta_info) in enumerate(trainer.batch_generator):
             trainer.read_timer.toc()
             trainer.gpu_timer.tic()
+            
+            print(cfg.model_dir)
 
             # forward
             trainer.optimizer.zero_grad()

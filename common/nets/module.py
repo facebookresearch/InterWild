@@ -56,7 +56,7 @@ class RotationNet(nn.Module):
         shape_param = self.shape_out(hand_feat.mean((2,3)))
         cam_param = self.cam_out(hand_feat.mean((2,3)))
         root_trans = self.get_root_trans(cam_param)
-        
+
         # pose
         hand_feat = self.conv(hand_feat)
         hand_feat = sample_joint_features(hand_feat, joint_img[:,:,:2]) # batch_size, joint_num, feat_dim
@@ -195,18 +195,7 @@ class BoxNet(nn.Module):
         self.bbox_center = make_conv_layers([256,2], kernel=1, stride=1, padding=0, bnrelu_final=False)
         self.rhand_size = make_linear_layers([256,256,2], relu_final=False)
         self.lhand_size = make_linear_layers([256,256,2], relu_final=False)
-    
-    def get_conf(self, bbox_center_hm, rhand_center, lhand_center):
-        batch_size = bbox_center_hm.shape[0]
-
-        bbox_center_hm = bbox_center_hm.view(batch_size,2,cfg.output_body_hm_shape[1]*cfg.output_body_hm_shape[2])
-        bbox_center_hm = F.softmax(bbox_center_hm, 2)
-        bbox_center_hm = bbox_center_hm.view(batch_size,2,cfg.output_body_hm_shape[1],cfg.output_body_hm_shape[2])
-
-        rhand_conf = sample_joint_features(bbox_center_hm[:,0,None,:,:], rhand_center[:,None,:])[:,0,0]
-        lhand_conf = sample_joint_features(bbox_center_hm[:,1,None,:,:], lhand_center[:,None,:])[:,0,0]
-        return rhand_conf, lhand_conf
-        
+       
     def forward(self, img_feat):
         img_feat = self.deconv(img_feat)
 
@@ -220,10 +209,7 @@ class BoxNet(nn.Module):
         rhand_size = self.rhand_size(rhand_feat)
         lhand_feat = sample_joint_features(img_feat, lhand_center.detach()[:,None,:])[:,0,:]
         lhand_size = self.lhand_size(lhand_feat)
-        
-        # bbox conf
-        rhand_conf, lhand_conf = self.get_conf(bbox_center_hm, rhand_center, lhand_center)
-        return rhand_center, rhand_size, lhand_center, lhand_size, rhand_conf, lhand_conf
+        return rhand_center, rhand_size, lhand_center, lhand_size
 
 class HandRoI(nn.Module):
     def __init__(self, backbone):

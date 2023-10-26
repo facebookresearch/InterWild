@@ -100,7 +100,7 @@ def augmentation(img, bbox, data_split, enforce_flip=None):
         scale, rot, color_scale, do_flip = get_aug_config()
     else:
         scale, rot, color_scale, do_flip = 1.0, 0.0, np.array([1,1,1]), False
-
+    
     if enforce_flip is None:
         pass
     elif enforce_flip is True:
@@ -175,7 +175,31 @@ def gen_trans_from_patch_cv(c_x, c_y, src_width, src_height, dst_width, dst_heig
     trans = trans.astype(np.float32)
     return trans
 
-def process_db_coord(joint_img, joint_cam, joint_valid, rel_trans, do_flip, img_shape, flip_pairs, img2bb_trans, rot, src_joints_name, target_joints_name):
+def distort_projection_fisheye(point, focal, princpt, D):
+    z = point[:,:,2].clone()
+
+    # distort
+    point_ndc = point[:,:,:2] / z[:,:,None]
+    r = torch.sqrt(torch.sum(point_ndc ** 2, 2)) 
+    theta = torch.atan(r)
+    theta_d = theta * (
+            1
+            + D[:,None,0] * theta.pow(2)
+            + D[:,None,1] * theta.pow(4)
+            + D[:,None,2] * theta.pow(6)
+            + D[:,None,3] * theta.pow(8)
+    )
+    point_ndc = point_ndc * (theta_d / r)[:,:,None]
+
+    # project
+    x = point_ndc[:,:,0]
+    y = point_ndc[:,:,1]
+    x = x * focal[:,None,0] + princpt[:,None,0]
+    y = y * focal[:,None,1] + princpt[:,None,1]
+    point_proj = torch.stack((x,y,z),2)
+    return point_proj
+
+def transform_db_data(joint_img, joint_cam, joint_valid, rel_trans, do_flip, img_shape, flip_pairs, img2bb_trans, rot, src_joints_name, target_joints_name):
     joint_img, joint_cam, joint_valid, rel_trans = joint_img.copy(), joint_cam.copy(), joint_valid.copy(), rel_trans.copy()
 
     # flip augmentation
@@ -188,9 +212,8 @@ def process_db_coord(joint_img, joint_cam, joint_valid, rel_trans, do_flip, img_
             joint_cam[pair[0],:], joint_cam[pair[1],:] = joint_cam[pair[1],:].copy(), joint_cam[pair[0],:].copy()
             joint_valid[pair[0],:], joint_valid[pair[1],:] = joint_valid[pair[1],:].copy(), joint_valid[pair[0],:].copy()
 
-    
     # 3D data rotation augmentation
-    rot_aug_mat = np.array([[np.cos(np.deg2rad(-rot)), -np.sin(np.deg2rad(-rot)), 0], 
+    rot_aug_mat = np.array([[np.cos(np.deg2rad(-rot)), -np.sin(np.deg2rad(-rot)), 0],
     [np.sin(np.deg2rad(-rot)), np.cos(np.deg2rad(-rot)), 0],
     [0, 0, 1]], dtype=np.float32)
     joint_cam = np.dot(rot_aug_mat, joint_cam.transpose(1,0)).transpose(1,0)
@@ -202,24 +225,65 @@ def process_db_coord(joint_img, joint_cam, joint_valid, rel_trans, do_flip, img_
     joint_img[:,0] = joint_img[:,0] / cfg.input_img_shape[1] * cfg.output_body_hm_shape[2]
     joint_img[:,1] = joint_img[:,1] / cfg.input_img_shape[0] * cfg.output_body_hm_shape[1]
     joint_img[:,2] = (joint_img[:,2] / (cfg.bbox_3d_size / 2) + 1)/2. * cfg.output_body_hm_shape[0]
-    
+
     # check truncation
     joint_trunc = joint_valid * ((joint_img[:,0] >= 0) * (joint_img[:,0] < cfg.output_body_hm_shape[2]) * \
                 (joint_img[:,1] >= 0) * (joint_img[:,1] < cfg.output_body_hm_shape[1]) * \
                 (joint_img[:,2] >= 0) * (joint_img[:,2] < cfg.output_body_hm_shape[0])).reshape(-1,1).astype(np.float32)
 
-    # transform joints to target db joints
+    # change joint order
     joint_img = transform_joint_to_other_db(joint_img, src_joints_name, target_joints_name)
     joint_cam = transform_joint_to_other_db(joint_cam, src_joints_name, target_joints_name)
     joint_valid = transform_joint_to_other_db(joint_valid, src_joints_name, target_joints_name)
     joint_trunc = transform_joint_to_other_db(joint_trunc, src_joints_name, target_joints_name)
     return joint_img, joint_cam, joint_valid, joint_trunc, rel_trans
 
-def process_human_model_output(mano_param, cam_param, do_flip, img_shape, img2bb_trans, rot):
+def transform_mano_data(joint_img, joint_cam, mesh_cam, joint_valid, rel_trans, pose, img2bb_trans, rot):
+    joint_img, pose = joint_img.copy(), pose.copy()
+
+    # 3D data rotation augmentation
+    rot_aug_mat = np.array([[np.cos(np.deg2rad(-rot)), -np.sin(np.deg2rad(-rot)), 0],
+    [np.sin(np.deg2rad(-rot)), np.cos(np.deg2rad(-rot)), 0],
+    [0, 0, 1]], dtype=np.float32)
+    mesh_cam = np.dot(rot_aug_mat, mesh_cam.transpose(1,0)).transpose(1,0)
+    joint_cam = np.dot(rot_aug_mat, joint_cam.transpose(1,0)).transpose(1,0)
+    rel_trans = np.dot(rot_aug_mat, rel_trans[:,None]).reshape(3)
+    pose = pose.reshape(-1,3)
+    for h in ('right', 'left'):
+        if h == 'right':
+            root_joint_idx = mano.orig_root_joint_idx
+        else:
+            root_joint_idx = mano.orig_root_joint_idx + mano.orig_joint_num
+        root_pose = pose[root_joint_idx,:]
+        root_pose, _ = cv2.Rodrigues(root_pose)
+        root_pose, _ = cv2.Rodrigues(np.dot(rot_aug_mat,root_pose))
+        pose[root_joint_idx] = root_pose.reshape(3)
+    pose = pose.reshape(-1)
+
+    # affine transformation and root-relative depth
+    joint_img_xy1 = np.concatenate((joint_img[:,:2], np.ones_like(joint_img[:,:1])),1)
+    joint_img[:,:2] = np.dot(img2bb_trans, joint_img_xy1.transpose(1,0)).transpose(1,0)
+    joint_img[:,0] = joint_img[:,0] / cfg.input_img_shape[1] * cfg.output_body_hm_shape[2]
+    joint_img[:,1] = joint_img[:,1] / cfg.input_img_shape[0] * cfg.output_body_hm_shape[1]
+    joint_img[:,2] = (joint_img[:,2] / (cfg.bbox_3d_size / 2) + 1)/2. * cfg.output_body_hm_shape[0]
+
+    # check truncation
+    joint_trunc = joint_valid * ((joint_img[:,0] >= 0) * (joint_img[:,0] < cfg.output_body_hm_shape[2]) * \
+                (joint_img[:,1] >= 0) * (joint_img[:,1] < cfg.output_body_hm_shape[1]) * \
+                (joint_img[:,2] >= 0) * (joint_img[:,2] < cfg.output_body_hm_shape[0])).reshape(-1,1).astype(np.float32)
+
+    return joint_img, joint_cam, mesh_cam, joint_trunc, rel_trans, pose
+
+def get_mano_data(mano_param, cam_param, do_flip, img_shape):
     pose, shape, trans = mano_param['pose'], mano_param['shape'], mano_param['trans']
     hand_type = mano_param['hand_type']
     pose = torch.FloatTensor(pose).view(-1,3); shape = torch.FloatTensor(shape).view(1,-1); # mano parameters (pose: 48 dimension, shape: 10 dimension)
     trans = torch.FloatTensor(trans).view(1,-1) # translation vector
+    if do_flip:
+        if hand_type == 'right':
+            hand_type = 'left'
+        else:
+            hand_type = 'right'
 
     # apply camera extrinsic (rotation)
     # merge root pose and camera rotation 
@@ -229,7 +293,14 @@ def process_human_model_output(mano_param, cam_param, do_flip, img_shape, img2bb
         root_pose, _ = cv2.Rodrigues(root_pose)
         root_pose, _ = cv2.Rodrigues(np.dot(R,root_pose))
         pose[mano.orig_root_joint_idx] = torch.from_numpy(root_pose).view(3)
-  
+ 
+    # flip pose parameter (axis-angle)
+    if do_flip:
+        for pair in mano.orig_flip_pairs:
+            pose[pair[0], :], pose[pair[1], :] = pose[pair[1], :].clone(), pose[pair[0], :].clone()
+        pose[:,1:3] *= -1 # multiply -1 to y and z axis of axis-angle
+        trans[:,0] *= -1 # multiply -1
+ 
     # get root joint coordinate
     root_pose = pose[mano.orig_root_joint_idx].view(1,3)
     hand_pose = torch.cat((pose[:mano.orig_root_joint_idx,:], pose[mano.orig_root_joint_idx+1:,:])).view(1,-1)
@@ -237,66 +308,41 @@ def process_human_model_output(mano_param, cam_param, do_flip, img_shape, img2bb
         output = mano.layer[hand_type](betas=shape, hand_pose=hand_pose, global_orient=root_pose, transl=trans)
     mesh_coord = output.vertices[0].numpy()
     joint_coord = np.dot(mano.sh_joint_regressor, mesh_coord)
-  
+    
+    # bring geometry to the original (before flip) position
+    if do_flip:
+        flip_trans_x = joint_coord[mano.sh_root_joint_idx,0] * -2
+        mesh_coord[:,0] += flip_trans_x
+        joint_coord[:,0] += flip_trans_x
+
     # apply camera exrinsic (translation)
     # compenstate rotation (translation from origin to root joint was not cancled)
     if 'R' in cam_param and 't' in cam_param:
         R, t = np.array(cam_param['R'], dtype=np.float32).reshape(3,3), np.array(cam_param['t'], dtype=np.float32).reshape(1,3)
-        root_coord = joint_coord[mano.sh_root_joint_idx,None,:]
+        root_coord = joint_coord[mano.sh_root_joint_idx,None,:].copy()
         joint_coord = joint_coord - root_coord + np.dot(R, root_coord.transpose(1,0)).transpose(1,0) + t
         mesh_coord = mesh_coord - root_coord + np.dot(R, root_coord.transpose(1,0)).transpose(1,0) + t
 
-    ## so far, joint coordinates are in camera-centered 3D coordinates (data augmentations are not applied yet)
-    ## now, project the 3D coordinates to image space and apply data augmentations
+    # flip translation
+    if do_flip: # avg of old and new root joint should be image center.
+        focal, princpt = cam_param['focal'], cam_param['princpt']
+        flip_trans_x = 2 * (((img_shape[1] - 1)/2. - princpt[0]) / focal[0] * joint_coord[mano.sh_root_joint_idx,2]) - 2 * joint_coord[mano.sh_root_joint_idx][0]
+        mesh_coord[:,0] += flip_trans_x
+        joint_coord[:,0] += flip_trans_x
 
     # image projection
-    joint_cam = joint_coord # camera-centered 3D coordinates
-    joint_img = cam2pixel(joint_cam, cam_param['focal'], cam_param['princpt'])
-    joint_cam = joint_cam - joint_cam[mano.sh_root_joint_idx,None,:] # root-relative
-    joint_img[:,2] = joint_cam[:,2].copy()
-    if do_flip:
-        joint_cam[:,0] = -joint_cam[:,0]
-        joint_img[:,0] = img_shape[1] - 1 - joint_img[:,0]
-        for pair in mano.sh_flip_pairs:
-            joint_cam[pair[0], :], joint_cam[pair[1], :] = joint_cam[pair[1], :].copy(), joint_cam[pair[0], :].copy()
-            joint_img[pair[0], :], joint_img[pair[1], :] = joint_img[pair[1], :].copy(), joint_img[pair[0], :].copy()
+    mesh_cam = mesh_coord # camera-centered 3D coordinates (not root-relative)
+    joint_cam = joint_coord # camera-centered 3D coordinates (not root-relative)
+    if 'D' in cam_param:
+        joint_img = distort_projection_fisheye(torch.from_numpy(joint_cam)[None], torch.from_numpy(cam_param['focal'])[None], torch.from_numpy(cam_param['princpt'])[None], torch.from_numpy(cam_param['D'])[None])
+        joint_img = joint_img[0].numpy()
+    else:
+        joint_img = cam2pixel(joint_cam, cam_param['focal'], cam_param['princpt'])
+    joint_img = joint_img[:,:2]
 
-    # x,y affine transform, root-relative depth
-    joint_img_xy1 = np.concatenate((joint_img[:,:2], np.ones_like(joint_img[:,0:1])),1)
-    joint_img[:,:2] = np.dot(img2bb_trans, joint_img_xy1.transpose(1,0)).transpose(1,0)[:,:2]
-    joint_img[:,0] = joint_img[:,0] / cfg.input_img_shape[1] * cfg.output_body_hm_shape[2]
-    joint_img[:,1] = joint_img[:,1] / cfg.input_img_shape[0] * cfg.output_body_hm_shape[1]
-    joint_img[:,2] = (joint_img[:,2] / (cfg.bbox_3d_size / 2) + 1)/2. * cfg.output_body_hm_shape[0]
-    
-    # check truncation
-    joint_trunc = ((joint_img[:,0] >= 0) * (joint_img[:,0] < cfg.output_body_hm_shape[2]) * \
-                (joint_img[:,1] >= 0) * (joint_img[:,1] < cfg.output_body_hm_shape[1]) * \
-                (joint_img[:,2] >= 0) * (joint_img[:,2] < cfg.output_body_hm_shape[0])).reshape(-1,1).astype(np.float32)
-    
-    # 3D data rotation augmentation
-    rot_aug_mat = np.array([[np.cos(np.deg2rad(-rot)), -np.sin(np.deg2rad(-rot)), 0], 
-    [np.sin(np.deg2rad(-rot)), np.cos(np.deg2rad(-rot)), 0],
-    [0, 0, 1]], dtype=np.float32)
-    # coordinate
-    joint_cam = np.dot(rot_aug_mat, joint_cam.transpose(1,0)).transpose(1,0)
-    # parameters
-    # flip pose parameter (axis-angle)
-    if do_flip:
-        for pair in mano.orig_flip_pairs:
-            pose[pair[0], :], pose[pair[1], :] = pose[pair[1], :].clone(), pose[pair[0], :].clone()
-        pose[:,1:3] *= -1 # multiply -1 to y and z axis of axis-angle
-    # rotate root pose
-    pose = pose.numpy()
-    root_pose = pose[mano.orig_root_joint_idx,:]
-    root_pose, _ = cv2.Rodrigues(root_pose)
-    root_pose, _ = cv2.Rodrigues(np.dot(rot_aug_mat,root_pose))
-    pose[mano.orig_root_joint_idx] = root_pose.reshape(3)
-    
-    pose = pose.reshape(-1)
-    # change to mean shape if beta is too far from it
-    shape[(shape.abs() > 3).any(dim=1)] = 0.
+    pose = pose.numpy().reshape(-1)
     shape = shape.numpy().reshape(-1)
-    return joint_img, joint_cam, joint_trunc, pose, shape, mesh_coord
+    return joint_img, joint_cam, mesh_cam, pose, shape
 
 def get_iou(box1, box2, form):
     box1 = box1.copy()

@@ -29,10 +29,15 @@ class PoseLoss(nn.Module):
         pose_out = pose_out.view(batch_size,-1,3)
         pose_gt = pose_gt.view(batch_size,-1,3)
 
-        pose_out = matrix_to_axis_angle(axis_angle_to_matrix(pose_out))
-        pose_gt = matrix_to_axis_angle(axis_angle_to_matrix(pose_gt))
+        #pose_out = matrix_to_axis_angle(axis_angle_to_matrix(pose_out))
+        #pose_gt = matrix_to_axis_angle(axis_angle_to_matrix(pose_gt))
 
-        loss = torch.abs(pose_out - pose_gt) * pose_valid[:,:,None]
+        #loss = torch.abs(pose_out - pose_gt) * pose_valid[:,:,None]
+
+        pose_out = axis_angle_to_matrix(pose_out)
+        pose_gt = axis_angle_to_matrix(pose_gt)
+
+        loss = torch.abs(pose_out - pose_gt) * pose_valid[:,:,None,None]
         return loss
 
 

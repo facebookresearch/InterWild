@@ -58,12 +58,14 @@ ${ROOT}
 |   |-- HIC
 |   |   |-- data
 |   |   |   |-- HIC.json
+|   |-- ReInterHand
+|   |   |-- data
+|   |   |   |-- m--*
 ```
 * Download InterHand2.6M [[HOMEPAGE](https://mks0601.github.io/InterHand2.6M/)]. `images` contains images in 5 fps, and `annotations` contains the `H+M` subset.
 * Download the whole-body version of MSCOCO [[HOMEPAGE](https://github.com/jin-s13/COCO-WholeBody/)]. `MSCOCO_train_MANO_NeuralAnnot.json` can be downloaded from [[here](https://drive.google.com/file/d/1OuWlMor5f0TZLVSsojz5Mh6Ut93WkcJc/view)].
 * Download HIC [[HOMEPAGE](https://files.is.tue.mpg.de/dtzionas/Hand-Object-Capture/)] [[annotations](https://drive.google.com/file/d/1oqquzJ7DY728M8zQoCYvvuZEBh8L8zkQ/view?usp=share_link)]. You need to download 1) all `Hand-Hand Interaction` sequences (`01.zip`-`14.zip`) and 2) some of `Hand-Object Interaction` seuqneces (`15.zip`-`21.zip`) and 3) MANO fits. Or you can simply run `python download.py` in the `data/HIC` folder.
-* All annotation files follow [MSCOCO format](http://cocodataset.org/#format-data). 
-* If you want to add your own dataset, you have to convert it to [MSCOCO format](http://cocodataset.org/#format-data).  
+* Download ReInterHand[[HOMEPAGE](https://mks0601.github.io/ReInterHand/)] at `data/ReInterHand/data`.
 
 ### Output
 You need to follow the directory structure of the `output` folder as below.
@@ -93,7 +95,10 @@ to train the network on the GPU 0,1,2,3. `--gpu 0,1,2,3` can be used instead of 
 
 
 ### Test
-* If you want to test with pre-trained InterWild, download it from [here](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link) and place it at `output/model_dump'. This checkpoint is trained on IH2.6M (H+M) + MSCOCO, while that of the paper is trained on IH2.6M (H) + MSCOCO.
+* Checkpoint trained on [IH26M (H+M) + MSCOCO](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link). FYI, all experimental results of the paper is from a checkpoint trained on IH26M (H) + MSCOCO.
+* Checkpoint trained on [IH26M (H+M) + MSCOCO + ReInterHand (Mugsy_cameras)](https://drive.google.com/file/d/1zZy3L6zrHJtWMUEJFonqDtRG9XGHabN1/view?usp=sharing). 
+* Checkpoint trained on [IH26M (H+M) + MSCOCO + ReInterHand (Ego_cameras)](https://drive.google.com/file/d/10ufTH3J95ss95p4eP7kIUweDCv0C320E/view?usp=sharing).
+* Place the checkpoint at `output/model_dump'.
 * Or if you want to test with our own trained model, place your model at `output/model_dump`.
 * For the evaluation on InterHand2.6M dataset, we evaluated all methods in the paper on `human_annot` subset of interHand2.6M using `data/InterHand26M/aid_human_annot_test.txt`.
 
@@ -107,7 +112,7 @@ to test the network on the GPU 0,1,2,3 with `snapshot_6.pth`.  `--gpu 0,1,2,3` c
 <img src="assets/IH26M.png" width="600" height="320">
 </p>
 <p align="center">
-The test results on InterHand2.6M test (H).
+The test results on InterHand2.6M test (H) from a checkpoint trained on IH26M (H+M) + MSCOCO.
 </p>
 
   
@@ -115,18 +120,25 @@ The test results on InterHand2.6M test (H).
 <img src="assets/HIC.png" width="600" height="100">  
 </p>
 <p align="center">
-The test results on HIC.
+The test results on HIC from a cehckpoint trained on IH26M (H+M) + MSCOCO.
 </p>
 
 
 ## Reference  
 ```  
-@InProceedings{Moon_2023_CVPR_InterWild,  
+@inproceedings{moon2023interwild,  
 author = {Moon, Gyeongsik},  
-title = {Bringing Inputs to Shared Domains for 3D Interacting Hands Recovery in the Wild},  
-booktitle = {The IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},  
+title = {Bringing Inputs to Shared Domains for {3D} Interacting Hands Recovery in the Wild},  
+booktitle = {CVPR},  
 year = {2023}  
-}  
+} 
+
+@inproceedings{moon2023reinterhand,
+  title     = {A Dataset of Relighted {3D} Interacting Hands},
+  author    = {Moon, Gyeongsik and Saito, Shunsuke and Xu, Weipeng and Joshi, Rohan and Buffalini, Julia and Bellan, Harley and Rosen, Nicholas and Richardson, Jesse and Mize Mallorie and Bree, Philippe and Simon, Tomas and Peng, Bo and Garg, Shubham and McPhail, Kevyn and Shiratori, Takaaki},
+  booktitle = {NeurIPS Track on Datasets and Benchmarks},
+  year      = {2023},
+}
 ```
 
 ## License

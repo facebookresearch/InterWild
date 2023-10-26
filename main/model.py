@@ -33,13 +33,13 @@ class Model(nn.Module):
         self.pose_loss = PoseLoss()
  
         self.trainable_modules = [self.body_backbone, self.body_box_net, self.hand_roi_net, self.hand_position_net, self.hand_rotation_net, self.hand_trans_net]
-    
+ 
     def get_coord(self, root_pose, hand_pose, shape, root_trans, hand_type):
         batch_size = root_pose.shape[0]
         zero_trans = torch.zeros((batch_size,3)).float().cuda()
         if hand_type == 'right':
             output = self.mano_layer_right(betas=shape, hand_pose=hand_pose, global_orient=root_pose, transl=zero_trans)
-        elif hand_type == 'left':
+        else:
             output = self.mano_layer_left(betas=shape, hand_pose=hand_pose, global_orient=root_pose, transl=zero_trans)
 
         # camera-centered 3D coordinate
@@ -66,7 +66,7 @@ class Model(nn.Module):
         # body network
         body_img = F.interpolate(inputs['img'], cfg.input_body_shape, mode='bilinear')
         body_feat = self.body_backbone(body_img)
-        rhand_bbox_center, rhand_bbox_size, lhand_bbox_center, lhand_bbox_size, rhand_bbox_conf, lhand_bbox_conf = self.body_box_net(body_feat)
+        rhand_bbox_center, rhand_bbox_size, lhand_bbox_center, lhand_bbox_size = self.body_box_net(body_feat)
         rhand_bbox = restore_bbox(rhand_bbox_center, rhand_bbox_size, cfg.input_hand_shape[1]/cfg.input_hand_shape[0], 2.0).detach() # xyxy in (cfg.input_body_shape[1], cfg.input_body_shape[0]) space
         lhand_bbox = restore_bbox(lhand_bbox_center, lhand_bbox_size, cfg.input_hand_shape[1]/cfg.input_hand_shape[0], 2.0).detach() # xyxy in (cfg.input_body_shape[1], cfg.input_body_shape[0]) space
         hand_feat, orig2hand_trans, hand2orig_trans = self.hand_roi_net(inputs['img'], rhand_bbox, lhand_bbox) # (2N, ...). right hand + flipped left hand
@@ -106,13 +106,14 @@ class Model(nn.Module):
         # get outputs
         rjoint_proj, rjoint_cam, rmesh_cam, rroot_cam = self.get_coord(rroot_pose, rhand_pose, rshape, rroot_trans, 'right')
         ljoint_proj, ljoint_cam, lmesh_cam, lroot_cam = self.get_coord(lroot_pose, lhand_pose, lshape, lroot_trans, 'left')
-        
+       
         # relative translation
         rel_trans = self.hand_trans_net(rjoint_img.detach(), ljoint_img.detach(), rhand_hand2orig_trans.detach(), lhand_hand2orig_trans.detach())
 
         # combine outputs for the loss calculation (follow mano.th_joints_name)
         mano_pose = torch.cat((rroot_pose, rhand_pose, lroot_pose, lhand_pose),1)
         mano_shape = torch.cat((rshape, lshape),1)
+        mesh_cam = torch.cat((rmesh_cam, lmesh_cam),1)
         joint_cam = torch.cat((rjoint_cam, ljoint_cam),1)
         joint_img = torch.cat((rjoint_img, ljoint_img),1)
         joint_proj = torch.cat((rjoint_proj, ljoint_proj),1)
@@ -128,8 +129,8 @@ class Model(nn.Module):
             loss['mano_pose'] = self.pose_loss(mano_pose, targets['mano_pose'], meta_info['mano_pose_valid'])
             loss['mano_shape'] = torch.abs(mano_shape - targets['mano_shape']) * meta_info['mano_shape_valid']
             loss['joint_cam'] = torch.abs(joint_cam - targets['joint_cam']) * meta_info['joint_valid'] * meta_info['is_3D'][:,None,None] * 10
-            loss['mano_joint_cam'] = torch.abs(joint_cam - targets['mano_joint_cam']) * meta_info['mano_joint_valid'] * 10
-            
+            loss['mano_mesh_cam'] = torch.abs(mesh_cam - targets['mano_mesh_cam']) * meta_info['mano_mesh_valid'] * 10
+ 
             # cfg.output_body_hm_shape -> cfg.output_hand_hm_shape
             for part_name, trans in (('right', rhand_orig2hand_trans), ('left', lhand_orig2hand_trans)):
                 for coord_name, trunc_name in (('joint_img', 'joint_trunc'), ('mano_joint_img', 'mano_joint_trunc')):
@@ -169,16 +170,6 @@ class Model(nn.Module):
                 joint_proj[:,mano.th_joint_type[part_name],0] = xy[:,:,0]
                 joint_proj[:,mano.th_joint_type[part_name],1] = xy[:,:,1]
 
-            # cfg.output_hand_hm_shape -> cfg.input_img_shape
-            for part_name, trans in (('right', rhand_hand2orig_trans), ('left', lhand_hand2orig_trans)):
-                x = joint_img[:,mano.th_joint_type[part_name],0] / cfg.output_hand_hm_shape[2] * cfg.input_hand_shape[1]
-                y = joint_img[:,mano.th_joint_type[part_name],1] / cfg.output_hand_hm_shape[1] * cfg.input_hand_shape[0]
-
-                xy1 = torch.stack((x, y, torch.ones_like(x)),2)
-                xy = torch.bmm(trans, xy1.permute(0,2,1)).permute(0,2,1)
-                joint_img[:,mano.th_joint_type[part_name],0] = xy[:,:,0]
-                joint_img[:,mano.th_joint_type[part_name],1] = xy[:,:,1]
-
             # warp focal lengths and princpts (right hand only)
             _joint_cam = joint_cam.clone()
             joint_idx = mano.th_joint_type['right']
@@ -201,7 +192,7 @@ class Model(nn.Module):
             render_lfocal = torch.stack((scale_x, scale_y),1)
             render_lprincpt = torch.stack((trans_x, trans_y),1)
               
-            # warp focal lengths and princpts (two hand)
+            # warp focal lengths and princpts (two hand)i
             _joint_cam = joint_cam.clone()
             _joint_cam[:,mano.th_joint_type['right'],:] += rroot_cam[:,None,:]
             _joint_cam[:,mano.th_joint_type['left'],:] += (rroot_cam[:,None,:] + rel_trans[:,None,:])
@@ -218,10 +209,6 @@ class Model(nn.Module):
             out['rel_trans'] = rel_trans
             out['rhand_bbox'] = restore_bbox(rhand_bbox_center, rhand_bbox_size, None, 1.0)
             out['lhand_bbox'] = restore_bbox(lhand_bbox_center, lhand_bbox_size, None, 1.0)
-            out['rhand_bbox_conf'] = rhand_bbox_conf
-            out['lhand_bbox_conf'] = lhand_bbox_conf
-            out['rjoint_img'] = joint_img[:,mano.th_joint_type['right'],:]
-            out['ljoint_img'] = joint_img[:,mano.th_joint_type['left'],:]
             out['rmano_mesh_cam'] = rmesh_cam
             out['lmano_mesh_cam'] = lmesh_cam
             out['rmano_joint_cam'] = rjoint_cam
@@ -244,6 +231,14 @@ class Model(nn.Module):
                 out['bb2img_trans'] = meta_info['bb2img_trans']
             if 'mano_mesh_cam' in targets:
                 out['mano_mesh_cam_target'] = targets['mano_mesh_cam']
+            if 'rel_trans' in targets:
+                out['rel_trans_target'] = targets['rel_trans']
+            if 'rhand_bbox' in targets:
+                out['rhand_bbox_target'] = targets['rhand_bbox']
+                out['lhand_bbox_target'] = targets['lhand_bbox']
+            if 'rhand_bbox_valid' in meta_info:
+                out['rhand_bbox_valid'] = meta_info['rhand_bbox_valid']
+                out['lhand_bbox_valid'] = meta_info['lhand_bbox_valid']
             return out
 
 def init_weights(m):

@@ -20,7 +20,8 @@ class MANO(object):
         self.vertex_num = 778
         self.face = {'right': self.layer['right'].faces, 'left': self.layer['left'].faces}
         self.shape_param_dim = 10
-
+        
+        # fix MANO shapedirs of the left hand bug (https://github.com/vchoutas/smplx/issues/48)
         if torch.sum(torch.abs(self.layer['left'].shapedirs[:,0,:] - self.layer['right'].shapedirs[:,0,:])) < 1:
             print('Fix shapedirs bug of MANO')
             self.layer['left'].shapedirs[:,0,:] *= -1
@@ -53,7 +54,5 @@ class MANO(object):
         self.th_root_joint_idx = {'right': self.th_joints_name.index('R_Wrist'), 'left': self.th_joints_name.index('L_Wrist')}
         self.th_flip_pairs = [(i,i+21) for i in range(21)]
         self.th_joint_type = {'right': np.arange(0,self.th_joint_num//2), 'left': np.arange(self.th_joint_num//2,self.th_joint_num)}
-
-        
 
 mano = MANO()

@@ -12,10 +12,10 @@ import numpy as np
 
 class Config:
     
-    ## dataset
-    trainset_3d = ['InterHand26M'] 
+    ## dataset (InterHand26M, MSCOCO, ReInterHand, HIC)
+    trainset_3d = ['InterHand26M', 'ReInterHand'] 
     trainset_2d = ['MSCOCO']
-    testset = 'HIC' # InterHand26M, HIC, MSCOCO
+    testset = 'HIC'
 
     ## model setting
     body_resnet_type = 50
@@ -43,11 +43,10 @@ class Config:
     train_batch_size = 128
 
     ## testing config
-    test_batch_size = 128
+    test_batch_size = 64
 
     ## others
     num_thread = 16
-    gpu_ids = '0'
     num_gpus = 1
     continue_train = False
     
@@ -68,7 +67,6 @@ class Config:
         self.continue_train = continue_train
         os.environ["CUDA_VISIBLE_DEVICES"] = self.gpu_ids
         print('>>> Using GPU: {}'.format(self.gpu_ids))
-
 
 cfg = Config()
 

@@ -18,7 +18,7 @@ from glob import glob
 from pycocotools.coco import COCO
 from config import cfg
 from utils.mano import mano
-from utils.preprocessing import load_img, get_bbox, process_bbox, augmentation, process_db_coord, process_human_model_output, get_iou, load_ply
+from utils.preprocessing import load_img, get_bbox, process_bbox, augmentation, get_iou, load_ply
 from utils.vis import vis_keypoints, save_obj
 
 class HIC(torch.utils.data.Dataset):
@@ -27,6 +27,8 @@ class HIC(torch.utils.data.Dataset):
         self.data_split = data_split
         assert data_split == 'test', 'only testing is supported for HIC dataset'
         self.data_path = osp.join('..', 'data', 'HIC', 'data')
+        self.focal = (525.0, 525.0)
+        self.princpt = (319.5, 239.5)
 
         # HIC joint set
         self.joint_set = {
@@ -78,39 +80,12 @@ class HIC(torch.utils.data.Dataset):
         return datalist
     
 
-    def process_hand_bbox(self, bbox, do_flip, img_shape, img2bb_trans):
-        if bbox is None:
-            bbox = np.array([0,0,1,1], dtype=np.float32).reshape(2,2) # dummy value
-            bbox_valid = float(False) # dummy value
-        else:
-            # reshape to top-left (x,y) and bottom-right (x,y)
-            bbox = bbox.reshape(2,2) 
-
-            # flip augmentation
-            if do_flip:
-                bbox[:,0] = img_shape[1] - bbox[:,0] - 1
-                bbox[0,0], bbox[1,0] = bbox[1,0].copy(), bbox[0,0].copy() # xmin <-> xmax swap
-            
-            # make four points of the bbox
-            bbox = bbox.reshape(4).tolist()
-            xmin, ymin, xmax, ymax = bbox
-            bbox = np.array([[xmin, ymin], [xmax, ymin], [xmax, ymax], [xmin, ymax]], dtype=np.float32).reshape(4,2)
-
-            # affine transformation (crop, rotation, scale)
-            bbox_xy1 = np.concatenate((bbox, np.ones_like(bbox[:,:1])),1) 
-            bbox = np.dot(img2bb_trans, bbox_xy1.transpose(1,0)).transpose(1,0)[:,:2]
-            bbox[:,0] = bbox[:,0] / cfg.input_img_shape[1] * cfg.output_body_hm_shape[2]
-            bbox[:,1] = bbox[:,1] / cfg.input_img_shape[0] * cfg.output_body_hm_shape[1]
-
-            # make box a rectangle without rotation
-            xmin = np.min(bbox[:,0]); xmax = np.max(bbox[:,0]);
-            ymin = np.min(bbox[:,1]); ymax = np.max(bbox[:,1]);
-            bbox = np.array([xmin, ymin, xmax, ymax], dtype=np.float32)
-            
-            bbox_valid = float(True)
-            bbox = bbox.reshape(2,2)
-
-        return bbox, bbox_valid
+    def get_bbox_from_mesh(self, mesh):
+        x = mesh[:,0] / mesh[:,2] * self.focal[0] + self.princpt[0]
+        y = mesh[:,1] / mesh[:,2] * self.focal[1] + self.princpt[1]
+        xy = np.stack((x,y),1)
+        bbox = get_bbox(xy, np.ones_like(x))
+        return bbox
 
     def __len__(self):
         return len(self.datalist)
@@ -127,15 +102,15 @@ class HIC(torch.utils.data.Dataset):
         # mano coordinates
         right_mano_path = data['right_mano_path']
         if right_mano_path is not None:
-            right_mesh = load_ply(right_mano_path)
+            rhand_mesh = load_ply(right_mano_path)
         else:
-            right_mesh = np.zeros((mano.vertex_num, 3), dtype=np.float32)
+            rhand_mesh = np.zeros((mano.vertex_num, 3), dtype=np.float32)
         left_mano_path = data['left_mano_path']
         if left_mano_path is not None:
-            left_mesh = load_ply(left_mano_path)
+            lhand_mesh = load_ply(left_mano_path)
         else:
-            left_mesh = np.zeros((mano.vertex_num, 3), dtype=np.float32)
-        mano_mesh_cam = np.concatenate((right_mesh, left_mesh))
+            lhand_mesh = np.zeros((mano.vertex_num, 3), dtype=np.float32)
+        mano_mesh_cam = np.concatenate((rhand_mesh, lhand_mesh))
         
         inputs = {'img': img}
         targets = {'mano_mesh_cam': mano_mesh_cam}
@@ -148,7 +123,9 @@ class HIC(torch.utils.data.Dataset):
         eval_result = {
                     'mpvpe_sh': [None for _ in range(sample_num)],
                     'mpvpe_ih': [None for _ in range(sample_num*2)],
-                    'mrrpe': [None for _ in range(sample_num)]
+                    'rrve': [None for _ in range(sample_num)],
+                    'mrrpe': [None for _ in range(sample_num)],
+                    'bbox_iou': [None for _ in range(sample_num*2)]
                     }
 
         for n in range(sample_num):
@@ -178,7 +155,27 @@ class HIC(torch.utils.data.Dataset):
 
                 save_obj(out['rmano_mesh_cam'], mano.face['right'], filename + '_right.obj')
                 save_obj(out['lmano_mesh_cam'] + out['rel_trans'].reshape(1,3), mano.face['left'], filename + '_left.obj')
-        
+ 
+            # bbox IoU
+            bb2img_trans = out['bb2img_trans']
+            for idx, h in enumerate(('right', 'left')):
+                if annot[h + '_mano_path'] is None:
+                    continue
+                bbox_out = out[h[0] + 'hand_bbox'] # xyxy in cfg.input_body_shape space
+                if h == 'right':
+                    bbox_gt = self.get_bbox_from_mesh(mesh_gt[:mano.vertex_num,:]) # xywh in original image space
+                else:
+                    bbox_gt = self.get_bbox_from_mesh(mesh_gt[mano.vertex_num:,:]) # xywh in original image space
+                bbox_gt[2:] += bbox_gt[:2] # xywh -> xyxy
+                
+                bbox_out = bbox_out.reshape(2,2)
+                bbox_out[:,0] = bbox_out[:,0] / cfg.input_body_shape[1] * cfg.input_img_shape[1]
+                bbox_out[:,1] = bbox_out[:,1] / cfg.input_body_shape[0] * cfg.input_img_shape[0]
+                bbox_out = np.concatenate((bbox_out, np.ones((2,1), dtype=np.float32)), 1)
+                bbox_out = np.dot(bb2img_trans, bbox_out.transpose(1,0)).transpose(1,0)
+                
+                eval_result['bbox_iou'][2*n+idx] = get_iou(bbox_out, bbox_gt, 'xyxy')
+
             # mrrpe
             rel_trans_gt = np.dot(mano.sh_joint_regressor, mesh_gt[mano.vertex_num:,:])[mano.sh_root_joint_idx] - np.dot(mano.sh_joint_regressor, mesh_gt[:mano.vertex_num,:])[mano.sh_root_joint_idx]
             rel_trans_out = out['rel_trans'] * 1000 # meter to milimeter
@@ -205,13 +202,23 @@ class HIC(torch.utils.data.Dataset):
                 if annot['left_mano_path'] is not None:
                     eval_result['mpvpe_ih'][2*n+1] = np.sqrt(np.sum((mesh_gt[mano.vertex_num:,:] - mesh_out[mano.vertex_num:,:])**2,1)).mean()
 
+            # mpvpe (right hand relative)
+            if annot['hand_type'] == 'interacting':
+                if annot['right_mano_path'] is not None and annot['left_mano_path'] is not None:
+                    vertex_mask = np.arange(mano.vertex_num,2*mano.vertex_num)
+                    mesh_gt[vertex_mask,:] = mesh_gt[vertex_mask,:] + rel_trans_gt
+                    mesh_out[vertex_mask,:] = mesh_out[vertex_mask,:] + rel_trans_out
+                    eval_result['rrve'][n] = np.sqrt(np.sum((mesh_gt - mesh_out)**2,1)).mean()
+
         return eval_result
     
     def print_eval_result(self, eval_result):
         tot_eval_result = {
                 'mpvpe_sh': [],
                 'mpvpe_ih': [],
-                'mrrpe': []
+                'rrve': [],
+                'mrrpe': [],
+                'bbox_iou': []
                 }
         
         # mpvpe (average all samples)
@@ -221,17 +228,27 @@ class HIC(torch.utils.data.Dataset):
         for mpvpe_ih in eval_result['mpvpe_ih']:
             if mpvpe_ih is not None:
                 tot_eval_result['mpvpe_ih'].append(mpvpe_ih)
-        
+        for mpvpe_ih in eval_result['rrve']:
+            if mpvpe_ih is not None:
+                tot_eval_result['rrve'].append(mpvpe_ih)
+       
         # mrrpe (average all samples)
         for mrrpe in eval_result['mrrpe']:
             if mrrpe is not None:
                 tot_eval_result['mrrpe'].append(mrrpe)
  
+        # bbox IoU
+        for iou in eval_result['bbox_iou']:
+            if iou is not None:
+                tot_eval_result['bbox_iou'].append(iou)
+        
         # print evaluation results
         eval_result = tot_eval_result
         
+        print('bbox IoU: %.2f' % (np.mean(eval_result['bbox_iou']) * 100))
         print('MRRPE: %.2f mm' % (np.mean(eval_result['mrrpe'])))
         print('MPVPE for all hand sequences: %.2f mm' % (np.mean(eval_result['mpvpe_sh'] + eval_result['mpvpe_ih'])))
         print('MPVPE for single hand sequences: %.2f mm' % (np.mean(eval_result['mpvpe_sh'])))
         print('MPVPE for interacting hand sequences: %.2f mm' % (np.mean(eval_result['mpvpe_ih'])))
+        print('RRVE for interacting hand sequences: %.2f mm' % (np.mean(eval_result['rrve'])))
 
