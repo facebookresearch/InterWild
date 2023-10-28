@@ -34,7 +34,7 @@ for capture_id in capture_id_list:
 
         if not osp.isfile(filename):
             good = False
-            results.append(filename + ' is missing. Please download it again.')
+            results.append(filename + ': missing. Please download it again.')
             continue
         
         os.system('md5sum ' + filename + ' > YOUR_CHECKSUM')
@@ -43,10 +43,10 @@ for capture_id in capture_id_list:
         os.system('rm YOUR_CHECKSUM')
         
         if md5sum == md5sum_yours:
-            results.append('md5sum of ' + filename + ' is correct.')
+            results.append(filename + ': md5sum is correct.')
         else:
             good = False
-            results.append('md5sum of ' + filename + ' is wrong. Please download it again')
+            results.append(filename + ': md5sum is wrong. Please download it again.')
 
     if good:
         print('All of downloaded files are verified.')
