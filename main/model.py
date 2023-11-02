@@ -170,6 +170,16 @@ class Model(nn.Module):
                 joint_proj[:,mano.th_joint_type[part_name],0] = xy[:,:,0]
                 joint_proj[:,mano.th_joint_type[part_name],1] = xy[:,:,1]
 
+            # cfg.output_hand_hm_shape -> cfg.input_img_shape
+            for part_name, trans in (('right', rhand_hand2orig_trans), ('left', lhand_hand2orig_trans)):
+                x = joint_img[:,mano.th_joint_type[part_name],0] / cfg.output_hand_hm_shape[2] * cfg.input_hand_shape[1]
+                y = joint_img[:,mano.th_joint_type[part_name],1] / cfg.output_hand_hm_shape[1] * cfg.input_hand_shape[0]
+
+                xy1 = torch.stack((x, y, torch.ones_like(x)),2)
+                xy = torch.bmm(trans, xy1.permute(0,2,1)).permute(0,2,1)
+                joint_img[:,mano.th_joint_type[part_name],0] = xy[:,:,0]
+                joint_img[:,mano.th_joint_type[part_name],1] = xy[:,:,1]
+                
             # warp focal lengths and princpts (right hand only)
             _joint_cam = joint_cam.clone()
             joint_idx = mano.th_joint_type['right']
