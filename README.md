@@ -14,8 +14,8 @@ This repo is official **[PyTorch](https://pytorch.org)** implementation of **[Br
 ## Demo
 1. Prepare `human_model_files` folder following below `Directory` part and place it at `common/utils/human_model_files`.
 2. Move to `demo` folder.
-3. Download pre-trained InterWild from [here](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link).
-4. Put input images at `images`. The image should be a cropped image, which contain a single human. For example, using a human detector. We have a hand detection network, so no worry about the hand postiions!
+3. Download pre-trained InterWild from [here](https://drive.google.com/file/d/1zZy3L6zrHJtWMUEJFonqDtRG9XGHabN1/view).
+4. Put input images at `images`. **The image should be a cropped image, which contain a single human. For example, using a human detector. We have a hand detection network, so no worry about the hand postiions!**
 5. Run `python demo.py --gpu $GPU_ID`
 6. Boxes, meshes, MANO parameters, and renderings are saved at `boxes`, `meshes`, `params`, and `renders`, respectively.
 
