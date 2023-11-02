@@ -211,6 +211,8 @@ class Model(nn.Module):
             out['lhand_bbox'] = restore_bbox(lhand_bbox_center, lhand_bbox_size, None, 1.0)
             out['rhand_bbox_conf'] = rhand_bbox_conf
             out['lhand_bbox_conf'] = lhand_bbox_conf
+            out['rjoint_img'] = joint_img[:,mano.th_joint_type['right'],:]
+            out['ljoint_img'] = joint_img[:,mano.th_joint_type['left'],:]
             out['rmano_mesh_cam'] = rmesh_cam
             out['lmano_mesh_cam'] = lmesh_cam
             out['rmano_joint_cam'] = rjoint_cam
