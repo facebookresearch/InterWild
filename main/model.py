@@ -157,7 +157,7 @@ class Model(nn.Module):
 
             loss['joint_img'] = self.coord_loss(joint_img, targets['joint_img'], meta_info['joint_trunc'], meta_info['is_3D'])
             loss['mano_joint_img'] = torch.abs(joint_img - targets['mano_joint_img']) * meta_info['mano_joint_trunc']
-            loss['joint_proj'] = torch.abs(joint_proj - targets['joint_img'][:,:,:2]) * meta_info['joint_valid']
+            loss['joint_proj'] = torch.abs(joint_proj - targets['joint_img'][:,:,:2]) * meta_info['joint_trunc']
             return loss
         else:
             # cfg.output_hand_hm_shape -> cfg.input_img_shape
