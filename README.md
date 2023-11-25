@@ -1,5 +1,7 @@
 # Bringing Inputs to Shared Domains for 3D Interacting Hands Recovery in the Wild
 
+## Our new Re:InterHand dataset has been released, which has much more diverse image appearances with more stable 3D GT. Check it out at [here](https://mks0601.github.io/ReInterHand)!
+
 ## Introduction
 This repo is official **[PyTorch](https://pytorch.org)** implementation of **[Bringing Inputs to Shared Domains for 3D Interacting Hands Recovery in the Wild (CVPR 2023)](https://arxiv.org/abs/2303.13652)**. 
 
