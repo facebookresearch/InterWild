@@ -69,7 +69,7 @@ class ReInterHand(torch.utils.data.Dataset):
                 for cam_name in cam_param.keys():
                     # Mugsy_cameras + envmap_per_frame is rendered in 5 fps. cannot use 30 fps frame_list.txt
                     if self.envmap_mode == 'envmap_per_frame':
-                        frame_idx_list = [int(x.split('/')[-1][:-4] for x in glob(osp.join(self.data_path, capture_id, 'Mugsy_cameras', self.envmap_mode, 'images', cam_name, '*'))]
+                        frame_idx_list = [int(x.split('/')[-1][:-4]) for x in glob(osp.join(self.data_path, capture_id, 'Mugsy_cameras', self.envmap_mode, 'images', cam_name, '*'))]
                     for frame_idx in frame_idx_list:
                         img_path = osp.join(self.data_path, capture_id, 'Mugsy_cameras', self.envmap_mode, 'images', cam_name, '%06d.png' % frame_idx)
                         rhand_joint_path = osp.join(self.data_path, capture_id, 'orig_fits', 'right', 'Keypoints', 'keypoint-%06d.json' % frame_idx)
