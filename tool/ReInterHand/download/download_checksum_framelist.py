@@ -35,6 +35,8 @@ def download_frame_list(capture_id):
     # download
     cmd = 'wget https://fb-baas-f32eacb9-8abb-11eb-b2b8-4857dd089e15.s3.amazonaws.com/ReInterHand/' + capture_id + '/frame_list.txt'
     os.system(cmd)
+    cmd = 'wget https://fb-baas-f32eacb9-8abb-11eb-b2b8-4857dd089e15.s3.amazonaws.com/ReInterHand/' + capture_id + '/frame_list_orig.txt'
+    os.system(cmd)
 
     # back to the current path
     os.chdir(current_path)
