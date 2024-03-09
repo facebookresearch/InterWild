@@ -28,7 +28,7 @@ name_list = {
         'm--20230317--1433--TRO760--pilot--ProjectGoliath--Hands--two-hands': ['aa', 'ab', 'ac']
 }
 
-def download_(capture_id):
+def download(capture_id):
     # change the working directory
     os.makedirs(osp.join(capture_id, 'orig_fits'), exist_ok=True)
     current_path = os.path.dirname(os.path.abspath(__file__))
@@ -49,6 +49,6 @@ def download_(capture_id):
 for capture_id in tqdm(capture_id_list):
     os.makedirs(capture_id, exist_ok=True)
     
-    download_(capture_id)
+    download(capture_id)
 
 
