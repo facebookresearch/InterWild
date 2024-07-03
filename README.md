@@ -16,7 +16,7 @@ This repo is official **[PyTorch](https://pytorch.org)** implementation of **[Br
 ## Demo
 1. Prepare `human_model_files` folder following below `Directory` part and place it at `common/utils/human_model_files`.
 2. Move to `demo` folder.
-3. Download pre-trained InterWild from [here](https://drive.google.com/file/d/1zZy3L6zrHJtWMUEJFonqDtRG9XGHabN1/view).
+3. Download pre-trained InterWild from [here](https://1drv.ms/u/s!All7gdNh7XE5okmRl9maPGiG-LZc?e=FjqR4C).
 4. Put input images at `images`. **The image should be a cropped image, which contain a single human. For example, using a human detector. We have a hand detection network, so no worry about the hand postiions!**
 5. Run `python demo.py --gpu $GPU_ID`
 6. Boxes, meshes, MANO parameters, and renderings are saved at `boxes`, `meshes`, `params`, and `renders`, respectively.
@@ -65,7 +65,7 @@ ${ROOT}
 |   |   |   |-- m--*
 ```
 * Download InterHand2.6M [[HOMEPAGE](https://mks0601.github.io/InterHand2.6M/)]. `images` contains images in 5 fps, and `annotations` contains the `H+M` subset.
-* Download the whole-body version of MSCOCO [[HOMEPAGE](https://github.com/jin-s13/COCO-WholeBody/)]. `MSCOCO_train_MANO_NeuralAnnot.json` can be downloaded from [[here](https://drive.google.com/file/d/1OuWlMor5f0TZLVSsojz5Mh6Ut93WkcJc/view)].
+* Download the whole-body version of MSCOCO [[HOMEPAGE](https://github.com/jin-s13/COCO-WholeBody/)]. `MSCOCO_train_MANO_NeuralAnnot.json` can be downloaded from [[here](https://1drv.ms/u/s!All7gdNh7XE5oX4zIfSMlbXoA0Lk?e=Orzx74)].
 * Download HIC [[HOMEPAGE](https://files.is.tue.mpg.de/dtzionas/Hand-Object-Capture/)] [[annotations](https://1drv.ms/u/s!All7gdNh7XE5libdXi9BCxOuHUhr?e=XnLfL4)]. You need to download 1) all `Hand-Hand Interaction` sequences (`01.zip`-`14.zip`) and 2) some of `Hand-Object Interaction` seuqneces (`15.zip`-`21.zip`) and 3) MANO fits. Or you can simply run `python download.py` in the `data/HIC` folder.
 * Download ReInterHand[[HOMEPAGE](https://mks0601.github.io/ReInterHand/)] at `data/ReInterHand/data`.
 
@@ -97,9 +97,9 @@ to train the network on the GPU 0,1,2,3. `--gpu 0,1,2,3` can be used instead of 
 
 
 ### Test
-* Checkpoint trained on [IH26M (H+M) + MSCOCO](https://drive.google.com/file/d/12temUVaIhrpUqw-zzXArqI6cm5aMfVWa/view?usp=share_link). FYI, all experimental results of the paper is from a checkpoint trained on IH26M (H) + MSCOCO.
-* Checkpoint trained on [IH26M (H+M) + MSCOCO + ReInterHand (Mugsy_cameras)](https://drive.google.com/file/d/1zZy3L6zrHJtWMUEJFonqDtRG9XGHabN1/view?usp=sharing). 
-* Checkpoint trained on [IH26M (H+M) + MSCOCO + ReInterHand (Ego_cameras)](https://drive.google.com/file/d/10ufTH3J95ss95p4eP7kIUweDCv0C320E/view?usp=sharing).
+* Checkpoint trained on [IH26M (H+M) + MSCOCO](https://1drv.ms/u/s!All7gdNh7XE5okc4w3_eov9n403M?e=2eFkLn). FYI, all experimental results of the paper is from a checkpoint trained on IH26M (H) + MSCOCO.
+* Checkpoint trained on [IH26M (H+M) + MSCOCO + ReInterHand (Mugsy_cameras)](https://1drv.ms/u/s!All7gdNh7XE5okmRl9maPGiG-LZc?e=FjqR4C). 
+* Checkpoint trained on [IH26M (H+M) + MSCOCO + ReInterHand (Ego_cameras)](https://1drv.ms/u/s!All7gdNh7XE5okuZtDAUGCnoFUUQ?e=iS57FY).
 * Place the checkpoint at `output/model_dump'.
 * Or if you want to test with our own trained model, place your model at `output/model_dump`.
 * For the evaluation on InterHand2.6M dataset, we evaluated all methods in the paper on `human_annot` subset of interHand2.6M using `data/InterHand26M/aid_human_annot_test.txt`.
